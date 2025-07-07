@@ -494,9 +494,7 @@ srsly==2.4.8
 stack-data==0.6.3
 starlette==0.41.0
 statsd==4.0.1
-streamlit==1.46.0
-streamlit-draggable-list==0.0.1
-streamlit-drawable-canvas==0.9.3
+
 stringzilla==3.12.5
 striprtf==0.0.26
 strsimpy==0.2.1
