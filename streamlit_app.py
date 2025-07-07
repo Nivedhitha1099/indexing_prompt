@@ -7,24 +7,18 @@ from langchain_core.messages import HumanMessage, SystemMessage # Still useful f
 from dotenv import load_dotenv # Optional: for loading token from .env file
 
 # Load environment variables from a .env file (optional)
-# This line might not be strictly necessary if you are relying solely on st.secrets
-# but can be kept for local development if you prefer .env for non-Streamlit runs.
 load_dotenv()
 
 def initialize_llm_runnable():
     """
     Initializes and returns a RunnableLambda that directly calls the Anthropic API.
     This bypasses ChatAnthropic to gain full control over API parameters for custom endpoints.
-    Expects LLMFOUNDRY_TOKEN to be set in st.secrets.
+    Expects LLMFOUNDRY_TOKEN environment variable to be set.
     """
     try:
-        # --- CHANGE STARTS HERE ---
-        # Access the token using st.secrets
-        token = st.secrets.get("LLMFOUNDRY_TOKEN")
-        # --- CHANGE ENDS HERE ---
-
+        token = os.getenv("LLMFOUNDRY_TOKEN")
         if not token:
-            st.error("LLMFOUNDRY_TOKEN not found in st.secrets. Please set it in your Streamlit secrets.")
+            st.error("LLMFOUNDRY_TOKEN environment variable not found. Please set it in your environment or a .env file.")
             return None
 
         # Initialize the core Anthropic client directly with the custom base_url
@@ -83,7 +77,7 @@ def initialize_llm_runnable():
 
     except Exception as e:
         st.error(f"Error setting up LLM integration: {e}. "
-                 f"Please ensure `LLMFOUNDRY_TOKEN` is correct in `st.secrets` and you have installed `anthropic` package (`pip install anthropic`).")
+                 f"Please ensure `LLMFOUNDRY_TOKEN` is correct and you have installed `anthropic` package (`pip install anthropic`).")
         return None
 
 def extract_text_from_pdf(pdf_file):
@@ -244,7 +238,7 @@ if uploaded_file is not None:
                     )
                 except Exception as e:
                     st.error(f"Failed to generate index with LLM: {e}")
-                    st.info("Please ensure your `LLMFOUNDRY_TOKEN` is correctly set in `st.secrets` and the API service is accessible.")
+                    st.info("Please ensure your `LLMFOUNDRY_TOKEN` is correctly set and the API service is accessible.")
             else:
                 st.error("Could not extract any content from the PDF. The file might be scanned or corrupted, or there was an issue with text extraction.")
     else:
