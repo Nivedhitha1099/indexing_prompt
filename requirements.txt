@@ -1,5 +1,13 @@
 streamlit
-PyMuPDF
-anthropic
-langchain-core
+PyPDF2
+openai
 python-dotenv
+pandas
+openpyxl
+python-docx
+bs4
+markdown
+langchain-anthropic
+langchain
+reportlab
+pdfplumber
