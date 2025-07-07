@@ -11,3 +11,4 @@ langchain-anthropic
 anthropic
 langchain
 reportlab
+PyMuPDF
