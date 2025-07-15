@@ -19,6 +19,7 @@ from langchain_core.tools import BaseTool
 # LangChain imports
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 
 # Additional imports
 import anthropic
@@ -163,36 +164,63 @@ def initialize_llm():
         return None
 
 # Alternative LLM initialization for LangChain compatibility
-def initialize_langchain_llm():
-    """Initialize LangChain LLM for direct use"""
+def initialize_lanchain_llm():
+    """Initialize the primary LLM (Anthropic Claude), with OpenAI-compatible fallback."""
     try:
-        # Try LLMFoundry first
+        # === Primary Anthropic Setup ===
         token = os.getenv("LLMFOUNDRY_TOKEN")
-        if token:
-            return ChatAnthropic(
-                model="claude-3-haiku-20240307",
-                temperature=0.1,
-                max_tokens=4096,
-                anthropic_api_key=f'{token}:my-test-project',
-                anthropic_api_url="https://llmfoundry.straive.com/anthropic/"
-            )
-        
-        # Fallback to standard Anthropic
-        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        if anthropic_key:
-            return ChatAnthropic(
-                model="claude-3-haiku-20240307",
-                temperature=0.1,
-                max_tokens=4096,
-                anthropic_api_key=anthropic_key
-            )
-        
-        return None
-        
-    except Exception as e:
-        st.error(f"LangChain LLM initialization error: {e}")
-        return None
+        if not token:
+            raise ValueError("LLMFOUNDRY_TOKEN not set")
 
+        client = anthropic.Anthropic(
+            api_key=f"{token}:my-test-project",
+            base_url="https://llmfoundry.straive.com/anthropic/",
+        )
+
+        def invoke_anthropic_api(messages):
+            try:
+                system_prompt = ""
+                user_messages = []
+                for msg in messages:
+                    if isinstance(msg, SystemMessage):
+                        system_prompt = msg.content
+                    elif isinstance(msg, HumanMessage):
+                        user_messages.append({"role": "user", "content": msg.content})
+
+                response = client.messages.create(
+                    model="claude-3-haiku-20240307",
+                    max_tokens=4096,
+                    messages=user_messages,
+                    system=system_prompt or None
+                )
+
+                if isinstance(response.content, list):
+                    return "".join([
+                        block.text for block in response.content
+                        if hasattr(block, 'text') and block.type == 'text'
+                    ])
+                return str(response.content)
+
+            except anthropic.AnthropicError as e:
+                print(f"[Anthropic error - fallback triggered] {e}")
+                raise e
+
+        return RunnableLambda(invoke_anthropic_api)
+
+    except Exception as anthropic_error:
+        print(f"[Anthropic failed, falling back to gpt-4o-mini] {anthropic_error}")
+
+        try:
+            return ChatOpenAI(
+                openai_api_base="https://llmfoundry.straive.com/openai/v1/",
+                openai_api_key=f'{os.environ["LLMFOUNDRY_TOKEN"]}:my-test-project',
+                model="gpt-4o-mini",
+                temperature=0.2,
+                max_tokens=4096
+            )
+        except Exception as fallback_error:
+            st.error(f"Both Anthropic and fallback OpenAI LLMs failed: {fallback_error}")
+            return None
 # Agents with proper LLM configuration
 def create_pdf_processor_agent(llm):
     """Agent responsible for PDF processing and text extraction"""
