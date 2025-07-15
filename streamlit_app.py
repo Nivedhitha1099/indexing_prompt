@@ -19,7 +19,6 @@ from langchain_core.tools import BaseTool
 # LangChain imports
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_anthropic import ChatAnthropic
-from langchain_openai import ChatOpenAI
 
 # Additional imports
 import anthropic
@@ -136,7 +135,7 @@ class GlossaryExtractorTool(BaseTool):
             return f"Error extracting glossary: {str(e)}"
 
 # Fixed LLM Configuration
-from langchain_openai import AzureChatOpenAI
+
 
 
 def initialize_llm():
@@ -159,11 +158,9 @@ def initialize_llm():
         print(f"❌ Failed to initialize Anthropic model: {e}")
         return None
 
-# Alternative LLM initialization for LangChain compatibility
 def initialize_lanchain_llm():
-    """Initialize the primary LLM (Anthropic Claude), with OpenAI-compatible fallback."""
+    """Initialize the primary LLM (Anthropic Claude)."""
     try:
-        # === Primary Anthropic Setup ===
         token = os.getenv("LLMFOUNDRY_TOKEN")
         if not token:
             raise ValueError("LLMFOUNDRY_TOKEN not set")
@@ -198,26 +195,17 @@ def initialize_lanchain_llm():
                 return str(response.content)
 
             except anthropic.AnthropicError as e:
-                print(f"[Anthropic error - fallback triggered] {e}")
+                print(f"[Anthropic error] {e}")
                 raise e
 
         return RunnableLambda(invoke_anthropic_api)
 
-    except Exception as anthropic_error:
-        print(f"[Anthropic failed, falling back to gpt-4o-mini] {anthropic_error}")
+    except Exception as e:
+        print(f"Anthropic init failed: {e}")
+        return None
 
-        try:
-            return ChatOpenAI(
-                openai_api_base="https://llmfoundry.straive.com/openai/v1/",
-                openai_api_key=f'{os.environ["LLMFOUNDRY_TOKEN"]}:my-test-project',
-                model="gpt-4o-mini",
-                temperature=0.2,
-                max_tokens=4096
-            )
-        except Exception as fallback_error:
-            st.error(f"Both Anthropic and fallback OpenAI LLMs failed: {fallback_error}")
-            return None
-# Agents with proper LLM configuration
+
+
 def create_pdf_processor_agent(llm):
     """Agent responsible for PDF processing and text extraction"""
     return Agent(
