@@ -49,13 +49,16 @@ class PDFProcessorTool(BaseTool):
     name: str = "PDF Processor"
     description: str = "Extracts text from PDF files with page numbers"
     
-    def _run(self, pdf_path: str) -> str:
-        """Extract text from PDF with page numbering"""
+    def _run(self, pdf_path: str, start_page: int = None, end_page: int = None) -> str:
+        """Extract text from PDF with page numbering, optionally for a page range"""
         try:
             doc = fitz.open(pdf_path)
             document_text_pages = []
             
-            for page_num in range(doc.page_count):
+            start = start_page if start_page is not None else 0
+            end = end_page if end_page is not None else doc.page_count
+            
+            for page_num in range(start, min(end, doc.page_count)):
                 page = doc.load_page(page_num)
                 text = page.get_text()
                 document_text_pages.append(f"Page {page_num + 1}:\n{text}\n")
@@ -400,33 +403,44 @@ class IndexingAutomation:
             chunks.append(current_chunk)
         return chunks
 
-    def process_document(self, pdf_content: str, previous_index: str = None, llm_guidelines: str = "") -> Dict[str, Any]:
+    def process_document(self, pdf_path: str, previous_index: str = None, llm_guidelines: str = "") -> Dict[str, Any]:
         """Main processing pipeline with error handling and chunking for large documents"""
         try:
             if not self.agents:
                 return {'error': 'Agents not initialized. Check LLM configuration.'}
 
-            # Chunk the PDF content to avoid token limit issues
-            chunks = self._chunk_text(pdf_content, max_chunk_size=3000)
+            # Open PDF to get page count
+            doc = fitz.open(pdf_path)
+            total_pages = doc.page_count
+            doc.close()
 
+            page_chunk_size = 10  # Number of pages per chunk
             aggregated_index = []
             aggregated_glossary = []
             aggregated_qa_reports = []
             aggregated_structure_analysis = []
 
-            for i, chunk in enumerate(chunks):
-                st.info(f"Processing chunk {i+1} of {len(chunks)}")
+            for start_page in range(0, total_pages, page_chunk_size):
+                end_page = min(start_page + page_chunk_size, total_pages)
+                st.info(f"Processing pages {start_page + 1} to {end_page} of {total_pages}")
+
+                # Extract text for page chunk
+                pdf_text_chunk = self.agents['pdf_processor']._run(pdf_path, start_page=start_page, end_page=end_page)
+
+                if pdf_text_chunk.startswith("Error processing PDF"):
+                    st.warning(f"PDF processing error on pages {start_page + 1}-{end_page}: {pdf_text_chunk}")
+                    continue
 
                 # Phase 1: PDF Processing and Structure Analysis on chunk
                 pdf_task = create_pdf_processing_task(
                     self.agents['pdf_processor'],
-                    chunk,
+                    pdf_text_chunk,
                     llm_guidelines
                 )
 
                 structure_task = create_structure_analysis_task(
                     self.agents['structure_analyst'],
-                    chunk,
+                    pdf_text_chunk,
                     previous_index,
                     llm_guidelines
                 )
@@ -443,11 +457,11 @@ class IndexingAutomation:
 
                 try:
                     phase1_results = crew_phase1.kickoff()
-                    document_content = str(phase1_results.tasks_output[0].raw) if phase1_results.tasks_output else chunk
+                    document_content = str(phase1_results.tasks_output[0].raw) if phase1_results.tasks_output else pdf_text_chunk
                     structure_analysis = str(phase1_results.tasks_output[1].raw) if len(phase1_results.tasks_output) > 1 else "Basic structure analysis"
                 except Exception as e:
-                    st.warning(f"Phase 1 error on chunk {i+1}: {e}. Using fallback processing.")
-                    document_content = chunk
+                    st.warning(f"Phase 1 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
+                    document_content = pdf_text_chunk
                     structure_analysis = "Basic structure analysis due to processing error"
 
                 # Phase 2: Index and Glossary Generation on chunk
@@ -479,7 +493,7 @@ class IndexingAutomation:
                     index_content = str(phase2_results.tasks_output[0].raw) if phase2_results.tasks_output else "Index generation failed"
                     glossary_content = str(phase2_results.tasks_output[1].raw) if len(phase2_results.tasks_output) > 1 else "Glossary extraction failed"
                 except Exception as e:
-                    st.warning(f"Phase 2 error on chunk {i+1}: {e}. Using fallback processing.")
+                    st.warning(f"Phase 2 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
                     index_content = "Index generation failed due to processing error"
                     glossary_content = "Glossary extraction failed due to processing error"
 
@@ -502,7 +516,7 @@ class IndexingAutomation:
                     phase3_results = crew_phase3.kickoff()
                     qa_report = str(phase3_results.tasks_output[0].raw) if phase3_results.tasks_output else "QA review failed"
                 except Exception as e:
-                    st.warning(f"Phase 3 error on chunk {i+1}: {e}. Using fallback processing.")
+                    st.warning(f"Phase 3 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
                     qa_report = "QA review failed due to processing error"
 
                 # Aggregate results
@@ -518,7 +532,7 @@ class IndexingAutomation:
             combined_structure_analysis = "\n\n---\n\n".join(aggregated_structure_analysis)
 
             self.results = {
-                'document_content': pdf_content,
+                'document_content': f"Processed {total_pages} pages in chunks of {page_chunk_size} pages.",
                 'structure_analysis': combined_structure_analysis,
                 'index_content': combined_index,
                 'glossary_content': combined_glossary,
