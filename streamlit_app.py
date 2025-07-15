@@ -140,22 +140,21 @@ from langchain_openai import AzureChatOpenAI
 
 
 def initialize_llm():
-    """Initialize Azure OpenAI GPT-4o-mini via LLMFoundry."""
-    
-    token = os.getenv("LLMFOUNDRY_TOKEN")
-    if not token:
+    """Initialize Azure-compatible LLM from LLMFoundry."""
+    api_key = os.getenv("LLMFOUNDRY_TOKEN")
+    if not api_key:
         st.error("Missing LLMFOUNDRY_TOKEN in environment.")
         return None
 
-    # ✅ Set for compatibility with libraries like litellm
-    os.environ["OPENAI_API_KEY"] = token
+    # Required by some libraries like litellm
+    os.environ["OPENAI_API_KEY"] = api_key
 
     try:
         return AzureChatOpenAI(
-            azure_endpoint="https://llmfoundry.straive.com/azure",  # ✅ FIXED
-            api_version="2025-01-01-preview",
-            azure_deployment="gpt-4o-mini",
-            openai_api_key=token,
+            azure_endpoint="https://llmfoundry.straive.com/azure",  # ✅ Must not include /openai
+            api_version="2025-01-01-preview",                       # ✅ Required
+            azure_deployment="gpt-4o-mini",                         # ✅ Must match supported list
+            openai_api_key=api_key,                                 # ✅ Just the token
             temperature=0.2,
             max_tokens=4096
         )
