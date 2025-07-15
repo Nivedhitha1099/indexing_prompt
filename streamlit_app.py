@@ -283,27 +283,28 @@ def create_structure_analysis_task(agent, document_content, previous_index=None,
     )
 
 def create_index_generation_task(agent, document_content, structure_analysis, llm_guidelines=""):
-    """Task for generating the subject index"""
+    """Task for generating the subject and name indexes"""
     return Task(
         description=f"""{llm_guidelines}
 
-        Generate a comprehensive subject index based on the document content and structure analysis.
+        Generate comprehensive subject and name indexes based on the document content and structure analysis.
         
         Document content: {document_content[:1000]}...
         Structure analysis: {structure_analysis}
         
         Follow these indexing guidelines:
-        1. Create main entries as nouns
-        2. Include appropriate subentries
+        1. Create main entries as nouns for subject index
+        2. Include appropriate subentries in subject index
         3. Add cross-references where needed
         4. Ensure accurate page numbering
         5. Follow alphabetical ordering
         6. Include double postings for important terms
+        7. Create a separate name index listing all names with page numbers
         
-        Output: Complete subject index in standard format
+        Output: Complete subject index and name index in standard format, clearly separated
         """,
         agent=agent,
-        expected_output="Complete subject index with main entries, subentries, and cross-references"
+        expected_output="Complete subject index and name index with main entries, subentries, and cross-references"
     )
 
 def create_glossary_extraction_task(agent, document_content, llm_guidelines=""):
@@ -457,32 +458,40 @@ class IndexingAutomation:
                     document_content = pdf_text_chunk
                     structure_analysis = "Basic structure analysis due to processing error"
 
-                # Phase 2: Index and Glossary Generation on chunk
-                index_task = create_index_generation_task(
-                    self.agents['index_generator'],
-                    document_content,
-                    structure_analysis,
-                    llm_guidelines
-                )
+            # Phase 2: Index and Glossary Generation on chunk
+            index_task = create_index_generation_task(
+                self.agents['index_generator'],
+                document_content,
+                structure_analysis,
+                llm_guidelines
+            )
 
-                # Remove glossary extraction task as per user request
-                crew_phase2 = Crew(
-                    agents=[
-                        self.agents['index_generator']
-                    ],
-                    tasks=[index_task],
-                    process=Process.sequential,
-                    verbose=True
-                )
+            # Remove glossary extraction task as per user request
+            crew_phase2 = Crew(
+                agents=[
+                    self.agents['index_generator']
+                ],
+                tasks=[index_task],
+                process=Process.sequential,
+                verbose=True
+            )
 
-                try:
-                    phase2_results = crew_phase2.kickoff()
-                    index_content = str(phase2_results.tasks_output[0].raw) if phase2_results.tasks_output else "Index generation failed"
-                    glossary_content = ""  # No glossary as per user request
-                except Exception as e:
-                    st.warning(f"Phase 2 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
-                    index_content = "Index generation failed due to processing error"
-                    glossary_content = ""
+            try:
+                phase2_results = crew_phase2.kickoff()
+                # Expecting output to contain both subject and name indexes separated by a delimiter
+                index_output = str(phase2_results.tasks_output[0].raw) if phase2_results.tasks_output else "Index generation failed"
+                # Split the output into subject and name indexes based on delimiter
+                if "---NAME INDEX---" in index_output:
+                    subject_index_content, name_index_content = index_output.split("---NAME INDEX---", 1)
+                else:
+                    subject_index_content = index_output
+                    name_index_content = ""
+                glossary_content = ""  # No glossary as per user request
+            except Exception as e:
+                st.warning(f"Phase 2 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
+                subject_index_content = "Index generation failed due to processing error"
+                name_index_content = ""
+                glossary_content = ""
 
                 # Phase 3: Quality Assurance on chunk
                 qa_task = create_qa_review_task(
@@ -506,25 +515,28 @@ class IndexingAutomation:
                     st.warning(f"Phase 3 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
                     qa_report = "QA review failed due to processing error"
 
-                # Aggregate results
-                aggregated_index.append(index_content)
-                aggregated_glossary.append(glossary_content)
-                aggregated_qa_reports.append(qa_report)
-                aggregated_structure_analysis.append(structure_analysis)
+            # Aggregate results
+            aggregated_subject_index.append(subject_index_content)
+            aggregated_name_index.append(name_index_content)
+            aggregated_glossary.append(glossary_content)
+            aggregated_qa_reports.append(qa_report)
+            aggregated_structure_analysis.append(structure_analysis)
 
-            # Combine aggregated results
-            combined_index = "\n\n---\n\n".join(aggregated_index)
-            combined_qa_report = "\n\n---\n\n".join(aggregated_qa_reports)
-            combined_structure_analysis = "\n\n---\n\n".join(aggregated_structure_analysis)
+        # Combine aggregated results
+        combined_subject_index = "\n\n---\n\n".join(aggregated_subject_index)
+        combined_name_index = "\n\n---\n\n".join(aggregated_name_index)
+        combined_qa_report = "\n\n---\n\n".join(aggregated_qa_reports)
+        combined_structure_analysis = "\n\n---\n\n".join(aggregated_structure_analysis)
 
-            self.results = {
-                'document_content': f"Processed {total_pages} pages in chunks of {page_chunk_size} pages.",
-                'structure_analysis': combined_structure_analysis,
-                'index_content': combined_index,
-                'glossary_content': "",  # No glossary as per user request
-                'qa_report': combined_qa_report,
-                'timestamp': datetime.now().isoformat()
-            }
+        self.results = {
+            'document_content': f"Processed {total_pages} pages in chunks of {page_chunk_size} pages.",
+            'structure_analysis': combined_structure_analysis,
+            'subject_index_content': combined_subject_index,
+            'name_index_content': combined_name_index,
+            'glossary_content': "",  # No glossary as per user request
+            'qa_report': combined_qa_report,
+            'timestamp': datetime.now().isoformat()
+        }
 
             return self.results
 
@@ -542,7 +554,10 @@ INDEXING AUTOMATION RESULTS
 Generated: {self.results.get('timestamp', 'Unknown')}
 
 === SUBJECT INDEX ===
-{self.results.get('index_content', 'No index generated')}
+{self.results.get('subject_index_content', 'No subject index generated')}
+
+=== NAME INDEX ===
+{self.results.get('name_index_content', 'No name index generated')}
 
 === GLOSSARY ===
 {self.results.get('glossary_content', 'No glossary generated')}
@@ -639,8 +654,9 @@ def main():
                             st.success("Indexing automation completed!")
                             
                             # Display results in tabs
-                            tab1, tab2, tab3, tab4 = st.tabs([
+                            tab1, tab2, tab3, tab4, tab5 = st.tabs([
                                 "📋 Subject Index", 
+                                "📋 Name Index",
                                 "📚 Glossary", 
                                 "🔍 QA Report", 
                                 "📊 Structure Analysis"
@@ -648,17 +664,21 @@ def main():
                             
                             with tab1:
                                 st.subheader("Generated Subject Index")
-                                st.text_area("Index Content", results.get('index_content', ''), height=400, key="index_content")
+                                st.text_area("Subject Index Content", results.get('subject_index_content', ''), height=400, key="subject_index_content")
                             
                             with tab2:
+                                st.subheader("Generated Name Index")
+                                st.text_area("Name Index Content", results.get('name_index_content', ''), height=400, key="name_index_content")
+                            
+                            with tab3:
                                 st.subheader("Extracted Glossary")
                                 st.text_area("Glossary Content", results.get('glossary_content', ''), height=400, key="glossary_content")
                             
-                            with tab3:
+                            with tab4:
                                 st.subheader("Quality Assurance Report")
                                 st.text_area("QA Report", results.get('qa_report', ''), height=400, key="qa_report")
                             
-                            with tab4:
+                            with tab5:
                                 st.subheader("Document Structure Analysis")
                                 st.text_area("Structure Analysis", results.get('structure_analysis', ''), height=400, key="structure_analysis")
                             
