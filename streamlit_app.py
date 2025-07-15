@@ -15,11 +15,10 @@ from pathlib import Path
 from crewai import Agent, Task, Crew, Process
 from langchain_core.tools import BaseTool
 
-
 # LangChain imports
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.runnables import RunnableLambda
 from langchain_anthropic import ChatAnthropic
+# from langchain_openai import ChatOpenAI  # Commented out - no OpenAI integration
 
 # Additional imports
 import anthropic
@@ -135,52 +134,80 @@ class GlossaryExtractorTool(BaseTool):
         except Exception as e:
             return f"Error extracting glossary: {str(e)}"
 
-# LLM Setup
-def initialize_llm():
-    """Initialize the LLM with custom endpoint"""
-    try:
-        token = os.getenv("LLMFOUNDRY_TOKEN")
-        if not token:
-            # Fallback to OpenAI or other provider
-            return ChatAnthropic(
-                model="claude-3-haiku-20240307",
-                temperature=0.1,
-                max_tokens=4096
-            )
-        
-        client = anthropic.Anthropic(
+# Custom LLM Wrapper for CrewAI compatibility
+class CustomAnthropicLLM:
+    def __init__(self, token: str):
+        self.client = anthropic.Anthropic(
             api_key=f'{token}:my-test-project',
             base_url="https://llmfoundry.straive.com/anthropic/",
         )
+        self.model = "claude-3-haiku-20240307"
         
-        def invoke_anthropic_api(messages):
-            system_prompt_content = ""
-            final_messages = []
+    def invoke(self, input_data, **kwargs):
+        try:
+            if isinstance(input_data, str):
+                messages = [{"role": "user", "content": input_data}]
+                system_prompt = None
+            elif isinstance(input_data, list):
+                messages = []
+                system_prompt = None
+                for msg in input_data:
+                    if isinstance(msg, SystemMessage):
+                        system_prompt = msg.content
+                    elif isinstance(msg, HumanMessage):
+                        messages.append({"role": "user", "content": msg.content})
+                    elif isinstance(msg, dict):
+                        messages.append(msg)
+            else:
+                messages = [{"role": "user", "content": str(input_data)}]
+                system_prompt = None
             
-            for msg in messages:
-                if isinstance(msg, SystemMessage):
-                    system_prompt_content = msg.content
-                elif isinstance(msg, HumanMessage):
-                    final_messages.append({"role": "user", "content": msg.content})
-            
-            api_response = client.messages.create(
-                model="claude-3-haiku-20240307",
+            response = self.client.messages.create(
+                model=self.model,
                 max_tokens=4096,
-                messages=final_messages,
-                system=system_prompt_content if system_prompt_content else None
+                messages=messages,
+                system=system_prompt
             )
             
-            if isinstance(api_response.content, list):
-                full_response_text = "".join([
-                    block.text for block in api_response.content
-                    if hasattr(block, 'text') and block.type == 'text'
-                ])
+            if isinstance(response.content, list):
+                return "".join([block.text for block in response.content if hasattr(block, 'text')])
             else:
-                full_response_text = str(api_response.content)
-            
-            return full_response_text
+                return str(response.content)
+                
+        except Exception as e:
+            return f"Error in LLM call: {str(e)}"
+
+# LLM Setup
+def initialize_llm():
+    """Initialize the LLM with proper CrewAI compatibility"""
+    try:
+        # Try LLMFoundry first
+        token = os.getenv("LLMFOUNDRY_TOKEN")
+        if token:
+            return CustomAnthropicLLM(token)
         
-        return RunnableLambda(invoke_anthropic_api)
+        # Fallback to standard Anthropic
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        if anthropic_key:
+            return ChatAnthropic(
+                model="claude-3-haiku-20240307",
+                temperature=0.1,
+                max_tokens=4096,
+                anthropic_api_key=anthropic_key
+            )
+        
+        # Fallback to OpenAI if available
+        # openai_key = os.getenv("OPENAI_API_KEY")
+        # if openai_key:
+        #     return ChatOpenAI(
+        #         model="gpt-3.5-turbo",
+        #         temperature=0.1,
+        #         max_tokens=4096,
+        #         openai_api_key=openai_key
+        #     )
+        
+        return None
+        
     except Exception as e:
         st.error(f"LLM initialization error: {e}")
         return None
@@ -373,7 +400,10 @@ def create_qa_review_task(agent, index_content, document_content):
 class IndexingAutomation:
     def __init__(self):
         self.llm = initialize_llm()
-        self.agents = self._initialize_agents()
+        if self.llm:
+            self.agents = self._initialize_agents()
+        else:
+            self.agents = None
         self.results = {}
     
     def _initialize_agents(self):
@@ -389,6 +419,9 @@ class IndexingAutomation:
     def process_document(self, pdf_content: str, previous_index: str = None) -> Dict[str, Any]:
         """Main processing pipeline"""
         try:
+            if not self.agents:
+                return {'error': 'Agents not initialized. Check LLM configuration.'}
+            
             # Phase 1: PDF Processing and Structure Analysis
             pdf_task = create_pdf_processing_task(
                 self.agents['pdf_processor'], 
@@ -519,8 +552,14 @@ def main():
     st.sidebar.header("Configuration")
     
     # Environment check
-    if not os.getenv("LLMFOUNDRY_TOKEN") and not os.getenv("ANTHROPIC_API_KEY"):
-        st.sidebar.error("Please set LLMFOUNDRY_TOKEN or ANTHROPIC_API_KEY environment variable")
+    has_llm = (os.getenv("LLMFOUNDRY_TOKEN") or 
+               os.getenv("ANTHROPIC_API_KEY"))
+               # or os.getenv("OPENAI_API_KEY"))  # Commented out - no OpenAI integration
+    
+    if not has_llm:
+        st.sidebar.error("Please set one of: LLMFOUNDRY_TOKEN or ANTHROPIC_API_KEY")
+        st.error("No LLM configuration found. Please set up your API keys.")
+        return
     
     # File upload
     st.header("📁 Document Upload")
