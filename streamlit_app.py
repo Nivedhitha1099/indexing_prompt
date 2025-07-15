@@ -367,7 +367,6 @@ class IndexingAutomation:
             'pdf_processor': create_pdf_processor_agent(self.llm),
             'structure_analyst': create_structure_analyst_agent(self.llm),
             'index_generator': create_index_generator_agent(self.llm),
-            'glossary_specialist': create_glossary_agent(self.llm),
             'qa_reviewer': create_qa_reviewer_agent(self.llm)
         }
 
