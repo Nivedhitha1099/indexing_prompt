@@ -625,7 +625,7 @@ def main():
         if previous_index_file is not None:
             previous_index = previous_index_file.read().decode('utf-8')
         
-        # Extract PDF content
+        # Process PDF file path directly without extracting full text here
         with st.spinner("Processing document..."):
             try:
                 # Save uploaded file temporarily
@@ -633,28 +633,19 @@ def main():
                 with open(temp_path, "wb") as f:
                     f.write(uploaded_file.getbuffer())
                 
-                # Extract text
+                st.success("PDF uploaded successfully!")
+                
+                # Show preview (limited to first 1000 characters of first 10 pages)
                 pdf_tool = PDFProcessorTool()
-                pdf_content = pdf_tool._run(temp_path)
-                
-                # Clean up temp file
-                os.remove(temp_path)
-                
-                if "Error" in pdf_content:
-                    st.error(f"PDF processing failed: {pdf_content}")
-                    return
-                
-                st.success("PDF processed successfully!")
-                
-                # Show preview (limited to first 1000 characters)
+                preview_text = pdf_tool._run(temp_path, start_page=0, end_page=10)
+                preview_text = preview_text[:1000] + "..." if len(preview_text) > 1000 else preview_text
                 with st.expander("📄 Document Preview"):
-                    preview_text = pdf_content[:1000] + "..." if len(pdf_content) > 1000 else pdf_content
                     st.text_area("Document Content Preview", preview_text, height=200)
                 
-                # Process with CrewAI
+                # Process with CrewAI using file path for chunked processing
                 if st.button("🚀 Start Indexing Automation"):
                     with st.spinner("Running multi-agent indexing system..."):
-                        results = automation.process_document(pdf_content, previous_index, llm_guidelines)
+                        results = automation.process_document(temp_path, previous_index, llm_guidelines)
                         
                         if 'error' in results:
                             st.error(f"Processing failed: {results['error']}")
