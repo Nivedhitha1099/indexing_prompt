@@ -420,12 +420,21 @@ class IndexingAutomation:
             aggregated_qa_reports = []
             aggregated_structure_analysis = []
 
+            # Use the PDFProcessorTool instance directly for extraction
+            pdf_processor_tool = None
+            for tool in self.agents['pdf_processor'].tools:
+                if isinstance(tool, PDFProcessorTool):
+                    pdf_processor_tool = tool
+                    break
+            if pdf_processor_tool is None:
+                return {'error': 'PDFProcessorTool not found in pdf_processor agent tools.'}
+
             for start_page in range(0, total_pages, page_chunk_size):
                 end_page = min(start_page + page_chunk_size, total_pages)
                 st.info(f"Processing pages {start_page + 1} to {end_page} of {total_pages}")
 
-                # Extract text for page chunk
-                pdf_text_chunk = self.agents['pdf_processor']._run(pdf_path, start_page=start_page, end_page=end_page)
+                # Extract text for page chunk using PDFProcessorTool directly
+                pdf_text_chunk = pdf_processor_tool._run(pdf_path, start_page=start_page, end_page=end_page)
 
                 if pdf_text_chunk.startswith("Error processing PDF"):
                     st.warning(f"PDF processing error on pages {start_page + 1}-{end_page}: {pdf_text_chunk}")
