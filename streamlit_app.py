@@ -10,7 +10,7 @@ from pathlib import Path
 
 # CrewAI imports
 from crewai import Agent, Task, Crew, Process
-from crewai.tools import BaseTool
+from langchain_core.tools import BaseTool
 
 
 # LangChain imports
