@@ -251,10 +251,11 @@ def create_structure_analyst_agent(llm):
     )
 
 # Tasks
-def create_pdf_processing_task(agent, pdf_content):
+def create_pdf_processing_task(agent, pdf_content, llm_guidelines=""):
     """Task for processing PDF and extracting structured text"""
     return Task(
-        description=f"""
+         description=f"""{llm_guidelines}
+
         Process the uploaded PDF document and extract structured text with page numbering.
         
         Document content: {pdf_content[:1000]}...
@@ -271,10 +272,11 @@ def create_pdf_processing_task(agent, pdf_content):
         expected_output="Structured text content with page numbers and document hierarchy"
     )
 
-def create_structure_analysis_task(agent, document_content, previous_index=None):
+def create_structure_analysis_task(agent, document_content, previous_index=None, llm_guidelines=""):
     """Task for analyzing document structure and previous index patterns"""
     return Task(
-        description=f"""
+        description=f"""{llm_guidelines}
+
         Analyze the document structure and identify indexing patterns.
         
         Document content: {document_content[:1000]}...
@@ -292,10 +294,11 @@ def create_structure_analysis_task(agent, document_content, previous_index=None)
         expected_output="Document structure analysis and indexing pattern recommendations"
     )
 
-def create_index_generation_task(agent, document_content, structure_analysis):
+def create_index_generation_task(agent, document_content, structure_analysis, llm_guidelines=""):
     """Task for generating the subject index"""
     return Task(
-        description=f"""
+        description=f"""{llm_guidelines}
+
         Generate a comprehensive subject index based on the document content and structure analysis.
         
         Document content: {document_content[:1000]}...
@@ -315,10 +318,11 @@ def create_index_generation_task(agent, document_content, structure_analysis):
         expected_output="Complete subject index with main entries, subentries, and cross-references"
     )
 
-def create_glossary_extraction_task(agent, document_content):
+def create_glossary_extraction_task(agent, document_content, llm_guidelines=""):
     """Task for extracting and organizing glossary terms"""
     return Task(
-        description=f"""
+        description=f"""{llm_guidelines}
+
         Extract and organize glossary terms from the document.
         
         Document content: {document_content[:1000]}...
@@ -336,10 +340,11 @@ def create_glossary_extraction_task(agent, document_content):
         expected_output="Organized glossary with terms, definitions, and validation notes"
     )
 
-def create_qa_review_task(agent, index_content, document_content):
+def create_qa_review_task(agent, index_content, document_content, llm_guidelines=""):
     """Task for quality assurance review"""
     return Task(
-        description=f"""
+        description=f"""{llm_guidelines}
+
         Review and validate the generated index for accuracy and completeness.
         
         Index content: {index_content}
@@ -367,7 +372,7 @@ class IndexingAutomation:
         else:
             self.agents = None
         self.results = {}
-    
+
     def _initialize_agents(self):
         """Initialize all agents"""
         return {
@@ -377,116 +382,152 @@ class IndexingAutomation:
             'glossary_specialist': create_glossary_agent(self.llm),
             'qa_reviewer': create_qa_reviewer_agent(self.llm)
         }
-    
-    def process_document(self, pdf_content: str, previous_index: str = None) -> Dict[str, Any]:
-        """Main processing pipeline with error handling"""
+
+    def _chunk_text(self, text: str, max_chunk_size: int = 3000) -> List[str]:
+        """
+        Chunk text into smaller pieces not exceeding max_chunk_size characters.
+        Tries to split on page boundaries or newlines for better chunking.
+        """
+        chunks = []
+        current_chunk = ""
+        for line in text.splitlines(keepends=True):
+            if len(current_chunk) + len(line) > max_chunk_size:
+                chunks.append(current_chunk)
+                current_chunk = line
+            else:
+                current_chunk += line
+        if current_chunk:
+            chunks.append(current_chunk)
+        return chunks
+
+    def process_document(self, pdf_content: str, previous_index: str = None, llm_guidelines: str = "") -> Dict[str, Any]:
+        """Main processing pipeline with error handling and chunking for large documents"""
         try:
             if not self.agents:
                 return {'error': 'Agents not initialized. Check LLM configuration.'}
-            
-            # Phase 1: PDF Processing and Structure Analysis
-            pdf_task = create_pdf_processing_task(
-                self.agents['pdf_processor'], 
-                pdf_content
-            )
-            
-            structure_task = create_structure_analysis_task(
-                self.agents['structure_analyst'], 
-                pdf_content, 
-                previous_index
-            )
-            
-            # Phase 1 Crew
-            crew_phase1 = Crew(
-                agents=[
+
+            # Chunk the PDF content to avoid token limit issues
+            chunks = self._chunk_text(pdf_content, max_chunk_size=3000)
+
+            aggregated_index = []
+            aggregated_glossary = []
+            aggregated_qa_reports = []
+            aggregated_structure_analysis = []
+
+            for i, chunk in enumerate(chunks):
+                st.info(f"Processing chunk {i+1} of {len(chunks)}")
+
+                # Phase 1: PDF Processing and Structure Analysis on chunk
+                pdf_task = create_pdf_processing_task(
                     self.agents['pdf_processor'],
-                    self.agents['structure_analyst']
-                ],
-                tasks=[pdf_task, structure_task],
-                process=Process.sequential,
-                verbose=True
-            )
-            
-            try:
-                phase1_results = crew_phase1.kickoff()
-                
-                # Extract results safely
-                document_content = str(phase1_results.tasks_output[0].raw) if phase1_results.tasks_output else pdf_content
-                structure_analysis = str(phase1_results.tasks_output[1].raw) if len(phase1_results.tasks_output) > 1 else "Basic structure analysis"
-                
-            except Exception as e:
-                st.warning(f"Phase 1 error: {e}. Using fallback processing.")
-                document_content = pdf_content
-                structure_analysis = "Basic structure analysis due to processing error"
-            
-            # Phase 2: Index and Glossary Generation
-            index_task = create_index_generation_task(
-                self.agents['index_generator'],
-                document_content,
-                structure_analysis
-            )
-            
-            glossary_task = create_glossary_extraction_task(
-                self.agents['glossary_specialist'],
-                document_content
-            )
-            
-            crew_phase2 = Crew(
-                agents=[
+                    chunk,
+                    llm_guidelines
+                )
+
+                structure_task = create_structure_analysis_task(
+                    self.agents['structure_analyst'],
+                    chunk,
+                    previous_index,
+                    llm_guidelines
+                )
+
+                crew_phase1 = Crew(
+                    agents=[
+                        self.agents['pdf_processor'],
+                        self.agents['structure_analyst']
+                    ],
+                    tasks=[pdf_task, structure_task],
+                    process=Process.sequential,
+                    verbose=True
+                )
+
+                try:
+                    phase1_results = crew_phase1.kickoff()
+                    document_content = str(phase1_results.tasks_output[0].raw) if phase1_results.tasks_output else chunk
+                    structure_analysis = str(phase1_results.tasks_output[1].raw) if len(phase1_results.tasks_output) > 1 else "Basic structure analysis"
+                except Exception as e:
+                    st.warning(f"Phase 1 error on chunk {i+1}: {e}. Using fallback processing.")
+                    document_content = chunk
+                    structure_analysis = "Basic structure analysis due to processing error"
+
+                # Phase 2: Index and Glossary Generation on chunk
+                index_task = create_index_generation_task(
                     self.agents['index_generator'],
-                    self.agents['glossary_specialist']
-                ],
-                tasks=[index_task, glossary_task],
-                process=Process.sequential,  # Changed from parallel for better stability
-                verbose=True
-            )
-            
-            try:
-                phase2_results = crew_phase2.kickoff()
-                
-                # Extract results safely
-                index_content = str(phase2_results.tasks_output[0].raw) if phase2_results.tasks_output else "Index generation failed"
-                glossary_content = str(phase2_results.tasks_output[1].raw) if len(phase2_results.tasks_output) > 1 else "Glossary extraction failed"
-                
-            except Exception as e:
-                st.warning(f"Phase 2 error: {e}. Using fallback processing.")
-                index_content = "Index generation failed due to processing error"
-                glossary_content = "Glossary extraction failed due to processing error"
-            
-            # Phase 3: Quality Assurance
-            qa_task = create_qa_review_task(
-                self.agents['qa_reviewer'],
-                index_content,
-                document_content
-            )
-            
-            crew_phase3 = Crew(
-                agents=[self.agents['qa_reviewer']],
-                tasks=[qa_task],
-                process=Process.sequential,
-                verbose=True
-            )
-            
-            try:
-                phase3_results = crew_phase3.kickoff()
-                qa_report = str(phase3_results.tasks_output[0].raw) if phase3_results.tasks_output else "QA review failed"
-                
-            except Exception as e:
-                st.warning(f"Phase 3 error: {e}. Using fallback processing.")
-                qa_report = "QA review failed due to processing error"
-            
-            # Compile final results
+                    document_content,
+                    structure_analysis,
+                    llm_guidelines
+                )
+
+                glossary_task = create_glossary_extraction_task(
+                    self.agents['glossary_specialist'],
+                    document_content,
+                    llm_guidelines
+                )
+
+                crew_phase2 = Crew(
+                    agents=[
+                        self.agents['index_generator'],
+                        self.agents['glossary_specialist']
+                    ],
+                    tasks=[index_task, glossary_task],
+                    process=Process.sequential,
+                    verbose=True
+                )
+
+                try:
+                    phase2_results = crew_phase2.kickoff()
+                    index_content = str(phase2_results.tasks_output[0].raw) if phase2_results.tasks_output else "Index generation failed"
+                    glossary_content = str(phase2_results.tasks_output[1].raw) if len(phase2_results.tasks_output) > 1 else "Glossary extraction failed"
+                except Exception as e:
+                    st.warning(f"Phase 2 error on chunk {i+1}: {e}. Using fallback processing.")
+                    index_content = "Index generation failed due to processing error"
+                    glossary_content = "Glossary extraction failed due to processing error"
+
+                # Phase 3: Quality Assurance on chunk
+                qa_task = create_qa_review_task(
+                    self.agents['qa_reviewer'],
+                    index_content,
+                    document_content,
+                    llm_guidelines
+                )
+
+                crew_phase3 = Crew(
+                    agents=[self.agents['qa_reviewer']],
+                    tasks=[qa_task],
+                    process=Process.sequential,
+                    verbose=True
+                )
+
+                try:
+                    phase3_results = crew_phase3.kickoff()
+                    qa_report = str(phase3_results.tasks_output[0].raw) if phase3_results.tasks_output else "QA review failed"
+                except Exception as e:
+                    st.warning(f"Phase 3 error on chunk {i+1}: {e}. Using fallback processing.")
+                    qa_report = "QA review failed due to processing error"
+
+                # Aggregate results
+                aggregated_index.append(index_content)
+                aggregated_glossary.append(glossary_content)
+                aggregated_qa_reports.append(qa_report)
+                aggregated_structure_analysis.append(structure_analysis)
+
+            # Combine aggregated results
+            combined_index = "\n\n---\n\n".join(aggregated_index)
+            combined_glossary = "\n\n---\n\n".join(aggregated_glossary)
+            combined_qa_report = "\n\n---\n\n".join(aggregated_qa_reports)
+            combined_structure_analysis = "\n\n---\n\n".join(aggregated_structure_analysis)
+
             self.results = {
-                'document_content': document_content,
-                'structure_analysis': structure_analysis,
-                'index_content': index_content,
-                'glossary_content': glossary_content,
-                'qa_report': qa_report,
+                'document_content': pdf_content,
+                'structure_analysis': combined_structure_analysis,
+                'index_content': combined_index,
+                'glossary_content': combined_glossary,
+                'qa_report': combined_qa_report,
                 'timestamp': datetime.now().isoformat()
             }
-            
+
             return self.results
-            
+
         except Exception as e:
             st.error(f"Error in processing pipeline: {str(e)}")
             return {'error': str(e)}
@@ -550,6 +591,13 @@ def main():
     # Previous index upload (optional)
     previous_index_file = st.file_uploader("Upload Previous Index (Optional)", type=['txt', 'json'])
     
+    # New: LLM guidelines input
+    st.header("✍️ LLM Guidelines Input")
+    llm_guidelines = st.text_area(
+        "Enter your custom LLM guidelines or instructions here. These will be prepended to every LLM task prompt.",
+        height=150
+    )
+    
     if uploaded_file is not None:
         # Initialize automation system
         automation = IndexingAutomation()
@@ -591,7 +639,7 @@ def main():
                 # Process with CrewAI
                 if st.button("🚀 Start Indexing Automation"):
                     with st.spinner("Running multi-agent indexing system..."):
-                        results = automation.process_document(pdf_content, previous_index)
+                        results = automation.process_document(pdf_content, previous_index, llm_guidelines)
                         
                         if 'error' in results:
                             st.error(f"Processing failed: {results['error']}")
