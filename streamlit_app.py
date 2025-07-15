@@ -158,51 +158,20 @@ def initialize_llm():
         print(f"❌ Failed to initialize Anthropic model: {e}")
         return None
 
-def initialize_lanchain_llm():
-    """Initialize the primary LLM (Anthropic Claude)."""
-    try:
-        token = os.getenv("LLMFOUNDRY_TOKEN")
-        if not token:
-            raise ValueError("LLMFOUNDRY_TOKEN not set")
+def initialize_llm():
+    """Initialize Claude-3-haiku from LLMFoundry (Anthropic-compatible) using CrewAI-compatible LLM wrapper."""
+    token = os.getenv("LLMFOUNDRY_TOKEN")
+    if not token:
+        raise ValueError("LLMFOUNDRY_TOKEN not found in environment variables")
 
-        client = anthropic.Anthropic(
-            api_key=f"{token}:my-test-project",
-            base_url="https://llmfoundry.straive.com/anthropic/",
-        )
-
-        def invoke_anthropic_api(messages):
-            try:
-                system_prompt = ""
-                user_messages = []
-                for msg in messages:
-                    if isinstance(msg, SystemMessage):
-                        system_prompt = msg.content
-                    elif isinstance(msg, HumanMessage):
-                        user_messages.append({"role": "user", "content": msg.content})
-
-                response = client.messages.create(
-                    model="claude-3-haiku-20240307",
-                    max_tokens=4096,
-                    messages=user_messages,
-                    system=system_prompt or None
-                )
-
-                if isinstance(response.content, list):
-                    return "".join([
-                        block.text for block in response.content
-                        if hasattr(block, 'text') and block.type == 'text'
-                    ])
-                return str(response.content)
-
-            except anthropic.AnthropicError as e:
-                print(f"[Anthropic error] {e}")
-                raise e
-
-        return RunnableLambda(invoke_anthropic_api)
-
-    except Exception as e:
-        print(f"Anthropic init failed: {e}")
-        return None
+    return LLM(
+        provider="anthropic",
+        model="claude-3-haiku-20240307",
+        api_key=f"{token}:my-test-project",
+        base_url="https://llmfoundry.straive.com/anthropic/",
+        temperature=0.3,
+        max_tokens=4096
+    )
 
 
 
