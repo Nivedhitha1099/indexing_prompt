@@ -194,30 +194,15 @@ def create_pdf_processor_agent(llm):
     )
 
 def create_index_generator_agent(llm):
-    """Agent responsible for generating subject indexes"""
+    """Agent responsible for generating subject and name indexes"""
     return Agent(
-        role='Subject Index Generator',
-        goal='Generate comprehensive subject indexes following professional indexing standards',
-        backstory="""You are a professional indexer with expertise in creating subject indexes 
+        role='Subject and Name Index Generator',
+        goal='Generate comprehensive subject and name indexes following professional indexing standards',
+        backstory="""You are a professional indexer with expertise in creating subject and name indexes 
         for academic and professional publications. You follow strict indexing guidelines, 
         understand the difference between main entries and subentries, and can create 
         appropriate cross-references. You ensure indexes are user-friendly and comprehensive.""",
         tools=[],
-        llm=llm,
-        verbose=True,
-        allow_delegation=False
-    )
-
-def create_glossary_agent(llm):
-    """Agent responsible for glossary extraction and validation"""
-    return Agent(
-        role='Glossary Specialist',
-        goal='Extract, validate, and organize glossary terms and definitions',
-        backstory="""You are a glossary and terminology expert who specializes in 
-        identifying key terms and their definitions within documents. You can extract 
-        existing glossaries, identify missing terms, and ensure consistency across 
-        editions. You understand the importance of accurate terminology in educational materials.""",
-        tools=[GlossaryExtractorTool()],
         llm=llm,
         verbose=True,
         allow_delegation=False
@@ -481,18 +466,12 @@ class IndexingAutomation:
                     llm_guidelines
                 )
 
-                glossary_task = create_glossary_extraction_task(
-                    self.agents['glossary_specialist'],
-                    document_content,
-                    llm_guidelines
-                )
-
+                # Remove glossary extraction task as per user request
                 crew_phase2 = Crew(
                     agents=[
-                        self.agents['index_generator'],
-                        self.agents['glossary_specialist']
+                        self.agents['index_generator']
                     ],
-                    tasks=[index_task, glossary_task],
+                    tasks=[index_task],
                     process=Process.sequential,
                     verbose=True
                 )
@@ -500,11 +479,11 @@ class IndexingAutomation:
                 try:
                     phase2_results = crew_phase2.kickoff()
                     index_content = str(phase2_results.tasks_output[0].raw) if phase2_results.tasks_output else "Index generation failed"
-                    glossary_content = str(phase2_results.tasks_output[1].raw) if len(phase2_results.tasks_output) > 1 else "Glossary extraction failed"
+                    glossary_content = ""  # No glossary as per user request
                 except Exception as e:
                     st.warning(f"Phase 2 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
                     index_content = "Index generation failed due to processing error"
-                    glossary_content = "Glossary extraction failed due to processing error"
+                    glossary_content = ""
 
                 # Phase 3: Quality Assurance on chunk
                 qa_task = create_qa_review_task(
@@ -536,7 +515,6 @@ class IndexingAutomation:
 
             # Combine aggregated results
             combined_index = "\n\n---\n\n".join(aggregated_index)
-            combined_glossary = "\n\n---\n\n".join(aggregated_glossary)
             combined_qa_report = "\n\n---\n\n".join(aggregated_qa_reports)
             combined_structure_analysis = "\n\n---\n\n".join(aggregated_structure_analysis)
 
@@ -544,7 +522,7 @@ class IndexingAutomation:
                 'document_content': f"Processed {total_pages} pages in chunks of {page_chunk_size} pages.",
                 'structure_analysis': combined_structure_analysis,
                 'index_content': combined_index,
-                'glossary_content': combined_glossary,
+                'glossary_content': "",  # No glossary as per user request
                 'qa_report': combined_qa_report,
                 'timestamp': datetime.now().isoformat()
             }
