@@ -137,26 +137,25 @@ class GlossaryExtractorTool(BaseTool):
 
 # Fixed LLM Configuration
 def initialize_llm():
-    """Initialize OpenAI-compatible model using LLMFoundry endpoint."""
+    """Initialize OpenAI-compatible model (LLMFoundry GPT-4o-mini) with litellm compatibility."""
     token = os.getenv("LLMFOUNDRY_TOKEN")
     if not token:
-        st.error("Missing LLMFOUNDRY_TOKEN in environment.")
+        st.error("Missing LLMFOUNDRY_TOKEN in .env or environment.")
         return None
 
-    try:
-        # Create the full API key as expected by the llmfoundry proxy
-        full_api_key = f"{token}:my-test-project"
+    # ✅ Set OPENAI_API_KEY so litellm doesn't crash
+    os.environ["OPENAI_API_KEY"] = f"{token}:my-test-project"
 
+    try:
         return ChatOpenAI(
             openai_api_base="https://llmfoundry.straive.com/openai/v1/",
-            openai_api_key=full_api_key,  # ✅ This line is critical
             model="gpt-4o-mini",
             temperature=0.2,
             max_tokens=4096
         )
 
     except Exception as e:
-        st.error(f"Failed to initialize LLM: {e}")
+        st.error(f"Failed to initialize ChatOpenAI fallback model: {e}")
         return None
 
 # Alternative LLM initialization for LangChain compatibility
