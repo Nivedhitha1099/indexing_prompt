@@ -165,7 +165,7 @@ def initialize_llm():
         raise ValueError("LLMFOUNDRY_TOKEN not found in environment variables")
 
     return LLM(
-        provider="anthropic",
+    
         model="claude-3-haiku-20240307",
         api_key=f"{token}:my-test-project",
         base_url="https://llmfoundry.straive.com/anthropic/",
