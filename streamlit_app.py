@@ -632,9 +632,10 @@ def main():
                 
                 st.success("PDF processed successfully!")
                 
-                # Show preview
+                # Show preview (limited to first 1000 characters)
                 with st.expander("📄 Document Preview"):
-                    st.text_area("Document Content", pdf_content[:2000] + "..." if len(pdf_content) > 2000 else pdf_content, height=200)
+                    preview_text = pdf_content[:1000] + "..." if len(pdf_content) > 1000 else pdf_content
+                    st.text_area("Document Content Preview", preview_text, height=200)
                 
                 # Process with CrewAI
                 if st.button("🚀 Start Indexing Automation"):
