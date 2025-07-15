@@ -12,4 +12,5 @@ anthropic
 langchain
 reportlab
 PyMuPDF
-crewai
+crewai==0.74.2 
+crewai-tools==0.13.2
