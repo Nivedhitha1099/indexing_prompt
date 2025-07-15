@@ -136,26 +136,30 @@ class GlossaryExtractorTool(BaseTool):
             return f"Error extracting glossary: {str(e)}"
 
 # Fixed LLM Configuration
+from langchain_openai import AzureChatOpenAI
 def initialize_llm():
-    """Initialize OpenAI-compatible model (LLMFoundry GPT-4o-mini) with litellm compatibility."""
+    """Initialize Azure OpenAI GPT-4o-mini via LLMFoundry with LiteLLM compatibility."""
+
     token = os.getenv("LLMFOUNDRY_TOKEN")
     if not token:
-        st.error("Missing LLMFOUNDRY_TOKEN in .env or environment.")
+        st.error("Missing LLMFOUNDRY_TOKEN in environment.")
         return None
 
-    # ✅ Set OPENAI_API_KEY so litellm doesn't crash
-    os.environ["OPENAI_API_KEY"] = f"{token}:my-test-project"
+    api_key = f"{token}:my-test-project"
+    os.environ["OPENAI_API_KEY"] = api_key  # For litellm compatibility
 
     try:
-        return ChatOpenAI(
-            openai_api_base="https://llmfoundry.straive.com/openai/v1/",
+        return AzureChatOpenAI(
+            openai_api_key=api_key,
+            openai_api_base="https://llmfoundry.straive.com/azure",
+            openai_api_version="2025-01-01-preview",
+            deployment_name="gpt-4o-mini",
             model="gpt-4o-mini",
             temperature=0.2,
             max_tokens=4096
         )
-
     except Exception as e:
-        st.error(f"Failed to initialize ChatOpenAI fallback model: {e}")
+        st.error(f"Failed to initialize Azure OpenAI model: {e}")
         return None
 
 # Alternative LLM initialization for LangChain compatibility
