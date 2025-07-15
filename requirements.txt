@@ -12,3 +12,4 @@ anthropic
 langchain
 reportlab
 PyMuPDF
+crewai
