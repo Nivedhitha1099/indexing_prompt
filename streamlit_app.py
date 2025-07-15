@@ -140,26 +140,23 @@ from langchain_openai import AzureChatOpenAI
 
 
 def initialize_llm():
-    """Initialize Azure-compatible LLM from LLMFoundry."""
-    api_key = os.getenv("LLMFOUNDRY_TOKEN")
-    if not api_key:
-        st.error("Missing LLMFOUNDRY_TOKEN in environment.")
-        return None
-
-    # Required by some libraries like litellm
-    os.environ["OPENAI_API_KEY"] = api_key
+    """Initialize Claude model via LLMFoundry Anthropic endpoint."""
+    token = os.getenv("LLMFOUNDRY_TOKEN")
+    if not token:
+        raise ValueError("Missing LLMFOUNDRY_TOKEN in environment variables")
 
     try:
-        return AzureChatOpenAI(
-            azure_endpoint="https://llmfoundry.straive.com/azure",  # ✅ Must not include /openai
-            api_version="2025-01-01-preview",                       # ✅ Required
-            azure_deployment="gpt-4o-mini",                         # ✅ Must match supported list
-            openai_api_key=api_key,                                 # ✅ Just the token
-            temperature=0.2,
+        chat_model = ChatAnthropic(
+            anthropic_api_key=f"{token}:my-test-project",
+            anthropic_api_url="https://llmfoundry.straive.com/anthropic/",
+            model_name="claude-3-haiku-20240307",  # You can also try claude-3-sonnet-20240229
+            temperature=0.3,
             max_tokens=4096
         )
+        return chat_model
+
     except Exception as e:
-        st.error(f"Failed to initialize Azure OpenAI model: {e}")
+        print(f"❌ Failed to initialize Anthropic model: {e}")
         return None
 
 # Alternative LLM initialization for LangChain compatibility
