@@ -84,14 +84,25 @@ def initialize_llm():
     )
 
 def create_subject_index_agent(llm):
-    """Agent responsible for generating only subject index"""
+    """Agent responsible for generating comprehensive subject index"""
     return Agent(
-        role='Subject Index Generator',
-        goal='Generate a clean, comprehensive subject index with accurate page numbers',
-        backstory="""You are a professional indexer specializing in creating subject indexes 
-        for academic and professional publications. You focus only on subject terms and concepts,
-        creating clean, alphabetically organized indexes with accurate page references. 
-        You exclude names, companies, and other non-subject entries.""",
+        role='Comprehensive Subject Index Generator',
+        goal='Extract ALL important terms and concepts to generate a thorough, comprehensive subject index with accurate page numbers',
+        backstory="""You are a professional indexer with expertise in comprehensive term extraction 
+        and subject indexing for academic and professional publications. You have a keen eye for 
+        identifying ALL significant terms, concepts, and ideas in documents. You understand the 
+        importance of thoroughness - readers depend on indexes to find every important concept.
+        
+        Your approach is systematic and comprehensive:
+        - You scan every paragraph for key terms and concepts
+        - You identify technical vocabulary and specialized terminology
+        - You extract both explicit and implicit subject matter
+        - You recognize important concepts even when they're not explicitly defined
+        - You understand the field's terminology and can identify significant terms
+        - You ensure no important concept is missed
+        
+        You excel at distinguishing between subjects (concepts, ideas, processes) and 
+        non-subjects (people, organizations, places) and focus exclusively on subject matter.""",
         tools=[],
         llm=llm,
         verbose=True,
@@ -103,21 +114,54 @@ def create_subject_index_task(agent, document_content, llm_guidelines=""):
     return Task(
         description=f"""{llm_guidelines}
 
-        Generate a clean subject index ONLY from the document content. 
+        Generate a comprehensive subject index from the document content, focusing on extracting ALL important terms and concepts.
         
         Document content: {document_content[:1000]}...
         
-        STRICT REQUIREMENTS:
-        1. Generate ONLY subject index entries (concepts, topics, themes)
+        CRITICAL REQUIREMENTS FOR COMPREHENSIVE EXTRACTION:
+        1. Extract ALL significant subject terms including:
+           - Key concepts and theories
+           - Technical terms and jargon
+           - Methodologies and processes
+           - Important topics and themes
+           - Academic and professional terminology
+           - Research methods and techniques
+           - Important phenomena and effects
+           - Systems, models, and frameworks
+           - Categories and classifications
+           - Significant events and developments
+        
         2. Do NOT include names of people, companies, or organizations
-        3. Use this exact format for each entry:
+        
+        3. Be thorough - scan the entire document content for:
+           - Terms that appear multiple times
+           - Terms emphasized in headings or subheadings
+           - Terms defined or explained in the text
+           - Technical vocabulary specific to the field
+           - Abstract concepts and ideas
+           - Processes and procedures
+           - Types, kinds, and varieties of things
+        
+        4. Use this exact format for each entry:
            Term, page numbers
-           Example: "Artificial intelligence, 15, 23, 45"
-        4. Sort entries alphabetically with letter headers (A, B, C, etc.)
-        5. Format: Letter header on its own line, followed by entries
-        6. Use accurate page numbers from the document
-        7. Output should be clean with no additional explanations or text
-        8. One entry per line under each letter section
+           Example: "Machine learning algorithms, 15, 23, 45"
+        
+        5. Include variations and related terms:
+           - If "data analysis" appears, also look for "statistical analysis", "quantitative analysis"
+           - If "research" appears, also look for "studies", "investigations", "experiments"
+           - Include both singular and plural forms where relevant
+        
+        6. Sort entries alphabetically with letter headers (A, B, C, etc.)
+        7. Format: Letter header on its own line, followed by entries
+        8. Use accurate page numbers from the document
+        9. Output should be clean with no additional explanations or text
+        10. One entry per line under each letter section
+        
+        EXTRACTION PRIORITY:
+        - Extract at least 50-100 terms per 20 pages of content
+        - Focus on substantive content words, not common words
+        - Include technical terms even if they appear only once if they're significant
+        - Look for terms in titles, headings, conclusions, and key paragraphs
         
         OUTPUT FORMAT EXAMPLE:
         A
@@ -133,7 +177,7 @@ def create_subject_index_task(agent, document_content, llm_guidelines=""):
         M
         Machine learning, 101, 123, 145
         
-        Generate the subject index now:
+        Generate the comprehensive subject index now - be thorough and extract all important terms:
         """,
         agent=agent,
         expected_output="Clean subject index with terms and page numbers only, no additional text or formatting"
@@ -160,7 +204,7 @@ class SubjectIndexAutomation:
             total_pages = doc.page_count
             doc.close()
 
-            page_chunk_size = 20  # Larger chunks since we only need subject index
+            page_chunk_size = 15  # Smaller chunks for more thorough processing
             aggregated_subject_index = []
 
             # Use the PDFProcessorTool instance directly for extraction
@@ -223,22 +267,41 @@ class SubjectIndexAutomation:
             return {'error': str(e)}
 
     def _clean_index_output(self, content: str) -> str:
-        """Clean the index output to remove unwanted text"""
+        """Clean the index output to remove unwanted text while preserving important terms"""
         lines = content.split('\n')
         cleaned_lines = []
         
         for line in lines:
             line = line.strip()
-            # Skip empty lines, headers, explanations
+            # Skip empty lines initially
             if not line:
                 continue
-            if line.lower().startswith(('subject index', 'index:', '===', '---', 'generated:', 'output:', 'here')):
+                
+            # Skip obvious headers, explanations, and metadata
+            if line.lower().startswith(('subject index', 'index:', '===', '---', 'generated:', 'output:', 'here', 'example:', 'format:')):
                 continue
-            if 'example:' in line.lower() or 'format:' in line.lower():
+            if 'comprehensive' in line.lower() or 'extraction' in line.lower():
                 continue
+                
+            # Keep single letters (alphabetical headers)
+            if len(line) == 1 and line.isalpha():
+                cleaned_lines.append(line.upper())
+                continue
+                
             # Keep lines that look like index entries (have comma and numbers)
             if ',' in line and any(char.isdigit() for char in line):
-                cleaned_lines.append(line)
+                # Additional cleaning for better term extraction
+                # Remove any prefixes like "- " or "* "
+                line = re.sub(r'^[\-\*\•]\s*', '', line)
+                # Ensure proper capitalization
+                parts = line.split(',', 1)
+                if len(parts) >= 2:
+                    term = parts[0].strip()
+                    pages = parts[1].strip()
+                    # Don't over-capitalize, preserve original case for most terms
+                    cleaned_lines.append(f"{term}, {pages}")
+                else:
+                    cleaned_lines.append(line)
         
         return '\n'.join(cleaned_lines)
 
@@ -309,8 +372,8 @@ def main():
         layout="wide"
     )
     
-    st.title("📚 Subject Index Generator")
-    st.markdown("Generate clean subject indexes from PDF documents")
+    st.title("📚 Comprehensive Subject Index Generator")
+    st.markdown("Extract ALL important terms and concepts from PDF documents for comprehensive subject indexing")
     
     # Sidebar for configuration
     st.sidebar.header("Configuration")
@@ -332,9 +395,9 @@ def main():
     # LLM guidelines input
     st.header("✍️ LLM Guidelines (Optional)")
     llm_guidelines = st.text_area(
-        "Enter additional instructions for the subject index generation:",
+        "Enter additional instructions for comprehensive term extraction:",
         height=100,
-        placeholder="e.g., Focus on technical terms, Include methodology concepts, etc."
+        placeholder="e.g., Focus on technical terms, Extract all methodologies, Include theoretical concepts, etc."
     )
     
     if uploaded_file is not None:
