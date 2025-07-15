@@ -414,7 +414,7 @@ class IndexingAutomation:
             total_pages = doc.page_count
             doc.close()
 
-            page_chunk_size = 10  # Number of pages per chunk
+            page_chunk_size = 50  # Number of pages per chunk
             aggregated_index = []
             aggregated_glossary = []
             aggregated_qa_reports = []
