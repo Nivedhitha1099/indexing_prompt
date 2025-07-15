@@ -400,7 +400,8 @@ class IndexingAutomation:
             doc.close()
 
             page_chunk_size = 50  # Number of pages per chunk
-            aggregated_index = []
+            aggregated_subject_index = []
+            aggregated_name_index = []
             aggregated_glossary = []
             aggregated_qa_reports = []
             aggregated_structure_analysis = []
@@ -458,45 +459,45 @@ class IndexingAutomation:
                     document_content = pdf_text_chunk
                     structure_analysis = "Basic structure analysis due to processing error"
 
-            # Phase 2: Index and Glossary Generation on chunk
-            index_task = create_index_generation_task(
-                self.agents['index_generator'],
-                document_content,
-                structure_analysis,
-                llm_guidelines
-            )
+                # Phase 2: Index and Glossary Generation on chunk
+                index_task = create_index_generation_task(
+                    self.agents['index_generator'],
+                    document_content,
+                    structure_analysis,
+                    llm_guidelines
+                )
 
-            # Remove glossary extraction task as per user request
-            crew_phase2 = Crew(
-                agents=[
-                    self.agents['index_generator']
-                ],
-                tasks=[index_task],
-                process=Process.sequential,
-                verbose=True
-            )
+                # Remove glossary extraction task as per user request
+                crew_phase2 = Crew(
+                    agents=[
+                        self.agents['index_generator']
+                    ],
+                    tasks=[index_task],
+                    process=Process.sequential,
+                    verbose=True
+                )
 
-            try:
-                phase2_results = crew_phase2.kickoff()
-                # Expecting output to contain both subject and name indexes separated by a delimiter
-                index_output = str(phase2_results.tasks_output[0].raw) if phase2_results.tasks_output else "Index generation failed"
-                # Split the output into subject and name indexes based on delimiter
-                if "---NAME INDEX---" in index_output:
-                    subject_index_content, name_index_content = index_output.split("---NAME INDEX---", 1)
-                else:
-                    subject_index_content = index_output
+                try:
+                    phase2_results = crew_phase2.kickoff()
+                    # Expecting output to contain both subject and name indexes separated by a delimiter
+                    index_output = str(phase2_results.tasks_output[0].raw) if phase2_results.tasks_output else "Index generation failed"
+                    # Split the output into subject and name indexes based on delimiter
+                    if "---NAME INDEX---" in index_output:
+                        subject_index_content, name_index_content = index_output.split("---NAME INDEX---", 1)
+                    else:
+                        subject_index_content = index_output
+                        name_index_content = ""
+                    glossary_content = ""  # No glossary as per user request
+                except Exception as e:
+                    st.warning(f"Phase 2 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
+                    subject_index_content = "Index generation failed due to processing error"
                     name_index_content = ""
-                glossary_content = ""  # No glossary as per user request
-            except Exception as e:
-                st.warning(f"Phase 2 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
-                subject_index_content = "Index generation failed due to processing error"
-                name_index_content = ""
-                glossary_content = ""
+                    glossary_content = ""
 
                 # Phase 3: Quality Assurance on chunk
                 qa_task = create_qa_review_task(
                     self.agents['qa_reviewer'],
-                    index_content,
+                    index_output,
                     document_content,
                     llm_guidelines
                 )
@@ -515,28 +516,28 @@ class IndexingAutomation:
                     st.warning(f"Phase 3 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
                     qa_report = "QA review failed due to processing error"
 
-            # Aggregate results
-            aggregated_subject_index.append(subject_index_content)
-            aggregated_name_index.append(name_index_content)
-            aggregated_glossary.append(glossary_content)
-            aggregated_qa_reports.append(qa_report)
-            aggregated_structure_analysis.append(structure_analysis)
+                # Aggregate results
+                aggregated_subject_index.append(subject_index_content)
+                aggregated_name_index.append(name_index_content)
+                aggregated_glossary.append(glossary_content)
+                aggregated_qa_reports.append(qa_report)
+                aggregated_structure_analysis.append(structure_analysis)
 
-        # Combine aggregated results
-        combined_subject_index = "\n\n---\n\n".join(aggregated_subject_index)
-        combined_name_index = "\n\n---\n\n".join(aggregated_name_index)
-        combined_qa_report = "\n\n---\n\n".join(aggregated_qa_reports)
-        combined_structure_analysis = "\n\n---\n\n".join(aggregated_structure_analysis)
+            # Combine aggregated results
+            combined_subject_index = "\n\n---\n\n".join(aggregated_subject_index)
+            combined_name_index = "\n\n---\n\n".join(aggregated_name_index)
+            combined_qa_report = "\n\n---\n\n".join(aggregated_qa_reports)
+            combined_structure_analysis = "\n\n---\n\n".join(aggregated_structure_analysis)
 
-        self.results = {
-            'document_content': f"Processed {total_pages} pages in chunks of {page_chunk_size} pages.",
-            'structure_analysis': combined_structure_analysis,
-            'subject_index_content': combined_subject_index,
-            'name_index_content': combined_name_index,
-            'glossary_content': "",  # No glossary as per user request
-            'qa_report': combined_qa_report,
-            'timestamp': datetime.now().isoformat()
-        }
+            self.results = {
+                'document_content': f"Processed {total_pages} pages in chunks of {page_chunk_size} pages.",
+                'structure_analysis': combined_structure_analysis,
+                'subject_index_content': combined_subject_index,
+                'name_index_content': combined_name_index,
+                'glossary_content': "",  # No glossary as per user request
+                'qa_report': combined_qa_report,
+                'timestamp': datetime.now().isoformat()
+            }
 
             return self.results
 
