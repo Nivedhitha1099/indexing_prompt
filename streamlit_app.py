@@ -137,30 +137,23 @@ class GlossaryExtractorTool(BaseTool):
 
 # Fixed LLM Configuration
 def initialize_llm():
-    """Initialize the LLM with proper CrewAI compatibility"""
+    """Initialize the LLM using OpenAI-compatible endpoint only (no Anthropic)."""
     try:
-        # Try LLMFoundry first
         token = os.getenv("LLMFOUNDRY_TOKEN")
-        if token:
-            # Use CrewAI's LLM wrapper for proper compatibility
-            return LLM(
-                model="anthropic/claude-3-haiku-20240307",
-                base_url="https://llmfoundry.straive.com/anthropic/",
-                api_key=f'{token}:my-test-project'
-            )
-        
-        # Fallback to standard Anthropic
-        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        if anthropic_key:
-            return LLM(
-                model="anthropic/claude-3-haiku-20240307",
-                api_key=anthropic_key
-            )
-        
-        return None
-        
+        if not token:
+            st.error("Missing LLMFOUNDRY_TOKEN in environment.")
+            return None
+
+        return ChatOpenAI(
+            openai_api_base="https://llmfoundry.straive.com/openai/v1/",
+            openai_api_key=f"{token}:my-test-project",
+            model="gpt-4o-mini",
+            temperature=0.2,
+            max_tokens=4096
+        )
+
     except Exception as e:
-        st.error(f"LLM initialization error: {e}")
+        st.error(f"Failed to initialize OpenAI-compatible model: {e}")
         return None
 
 # Alternative LLM initialization for LangChain compatibility
