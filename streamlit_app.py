@@ -1,3 +1,6 @@
+import sys
+import pysqlite3
+sys.modules['sqlite3'] = pysqlite3
 import os
 import streamlit as st
 import fitz  # PyMuPDF
@@ -623,7 +626,7 @@ def main():
     
     # Footer
     st.markdown("---")
-    st.markdown("*Powered by CrewAI Multi-Agent System*")
+    
 
 if __name__ == "__main__":
     main()
