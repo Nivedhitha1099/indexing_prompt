@@ -15,5 +15,4 @@ PyMuPDF
 crewai==0.74.2 
 crewai-tools==0.13.2
 setuptools
-chromadb==0.4.15
-pysqlite3-binary
+
