@@ -68,99 +68,7 @@ class PDFProcessorTool(BaseTool):
         except Exception as e:
             return f"Error processing PDF: {str(e)}"
 
-class IndexValidatorTool(BaseTool):
-    name: str = "Index Validator"
-    description: str = "Validates index entries against document content"
-    
-    def _run(self, index_data: str, document_content: str) -> str:
-        """Validate index entries against document content"""
-        try:
-            # Parse index data (assuming JSON format)
-            index_entries = json.loads(index_data)
-            validation_results = []
-            
-            for entry in index_entries:
-                term = entry.get('term', '')
-                pages = entry.get('pages', [])
-                
-                # Check if term actually appears on specified pages
-                validation_result = {
-                    'term': term,
-                    'pages': pages,
-                    'valid': True,
-                    'issues': []
-                }
-                
-                # Simple validation - check if term appears in document
-                if term.lower() not in document_content.lower():
-                    validation_result['valid'] = False
-                    validation_result['issues'].append(f"Term '{term}' not found in document")
-                
-                validation_results.append(validation_result)
-            
-            return json.dumps(validation_results, indent=2)
-        except Exception as e:
-            return f"Error validating index: {str(e)}"
-
-class GlossaryExtractorTool(BaseTool):
-    name: str = "Glossary Extractor"
-    description: str = "Extracts glossary terms and definitions from document"
-    
-    def _run(self, document_content: str) -> str:
-        """Extract glossary terms and definitions"""
-        try:
-            # Look for glossary sections
-            glossary_pattern = r'(?i)glossary|definition|terms'
-            lines = document_content.split('\n')
-            
-            glossary_terms = []
-            in_glossary = False
-            
-            for line in lines:
-                if re.search(glossary_pattern, line):
-                    in_glossary = True
-                    continue
-                
-                if in_glossary and line.strip():
-                    # Simple term extraction (can be enhanced)
-                    if ':' in line or '–' in line or '-' in line:
-                        parts = re.split(r'[:\-–]', line, 1)
-                        if len(parts) == 2:
-                            term = parts[0].strip()
-                            definition = parts[1].strip()
-                            glossary_terms.append({
-                                'term': term,
-                                'definition': definition
-                            })
-            
-            return json.dumps(glossary_terms, indent=2)
-        except Exception as e:
-            return f"Error extracting glossary: {str(e)}"
-
 # Fixed LLM Configuration
-
-
-
-def initialize_llm():
-    """Initialize Claude model via LLMFoundry Anthropic endpoint."""
-    token = os.getenv("LLMFOUNDRY_TOKEN")
-    if not token:
-        raise ValueError("Missing LLMFOUNDRY_TOKEN in environment variables")
-
-    try:
-        chat_model = ChatAnthropic(
-            anthropic_api_key=f"{token}:my-test-project",
-            anthropic_api_url="https://llmfoundry.straive.com/anthropic/",
-            model_name="claude-3-haiku-20240307",  # You can also try claude-3-sonnet-20240229
-            temperature=0.3,
-            max_tokens=4096
-        )
-        return chat_model
-
-    except Exception as e:
-        print(f"❌ Failed to initialize Anthropic model: {e}")
-        return None
-
 def initialize_llm():
     """Initialize Claude-3-haiku from LLMFoundry (Anthropic-compatible) using CrewAI-compatible LLM wrapper."""
     token = os.getenv("LLMFOUNDRY_TOKEN")
@@ -168,7 +76,6 @@ def initialize_llm():
         raise ValueError("LLMFOUNDRY_TOKEN not found in environment variables")
 
     return LLM(
-    
         model="claude-3-haiku-20240307",
         api_key=f"{token}:my-test-project",
         base_url="https://llmfoundry.straive.com/anthropic/",
@@ -176,366 +83,136 @@ def initialize_llm():
         max_tokens=4096
     )
 
-
-
-def create_pdf_processor_agent(llm):
-    """Agent responsible for PDF processing and text extraction"""
+def create_subject_index_agent(llm):
+    """Agent responsible for generating only subject index"""
     return Agent(
-        role='PDF Processing Specialist',
-        goal='Extract and structure text content from PDF documents with accurate page numbering',
-        backstory="""You are an expert in document processing and text extraction. 
-        You specialize in converting PDF documents into structured text while maintaining 
-        page references and document structure. You ensure high-quality text extraction 
-        even from complex layouts and scanned documents.""",
-        tools=[PDFProcessorTool()],
-        llm=llm,
-        verbose=True,
-        allow_delegation=False
-    )
-
-def create_index_generator_agent(llm):
-    """Agent responsible for generating subject and name indexes"""
-    return Agent(
-        role='Subject and Name Index Generator',
-        goal='Generate comprehensive subject and name indexes following professional indexing standards',
-        backstory="""You are a professional indexer with expertise in creating subject and name indexes 
-        for academic and professional publications. You follow strict indexing guidelines, 
-        understand the difference between main entries and subentries, and can create 
-        appropriate cross-references. You ensure indexes are user-friendly and comprehensive.""",
+        role='Subject Index Generator',
+        goal='Generate a clean, comprehensive subject index with accurate page numbers',
+        backstory="""You are a professional indexer specializing in creating subject indexes 
+        for academic and professional publications. You focus only on subject terms and concepts,
+        creating clean, alphabetically organized indexes with accurate page references. 
+        You exclude names, companies, and other non-subject entries.""",
         tools=[],
         llm=llm,
         verbose=True,
         allow_delegation=False
     )
 
-def create_qa_reviewer_agent(llm):
-    """Agent responsible for quality assurance and review"""
-    return Agent(
-        role='QA Review Specialist',
-        goal='Review and validate index entries for accuracy and completeness',
-        backstory="""You are a quality assurance expert specializing in index validation. 
-        You meticulously check index entries against source documents, validate page 
-        references, identify inconsistencies, and ensure adherence to style guidelines. 
-        You provide detailed feedback for improvements.""",
-        tools=[IndexValidatorTool()],
-        llm=llm,
-        verbose=True,
-        allow_delegation=False
-    )
-
-def create_structure_analyst_agent(llm):
-    """Agent responsible for analyzing document structure and previous indexes"""
-    return Agent(
-        role='Structure Analysis Expert',
-        goal='Analyze document structure and previous index patterns to maintain consistency',
-        backstory="""You are an expert in document structure analysis and indexing patterns. 
-        You can identify different types of index entries (names, companies, subjects), 
-        analyze previous edition indexes, and establish consistent formatting and 
-        organizational rules for new indexes.""",
-        tools=[],
-        llm=llm,
-        verbose=True,
-        allow_delegation=False
-    )
-
-# Tasks
-def create_pdf_processing_task(agent, pdf_content, llm_guidelines=""):
-    """Task for processing PDF and extracting structured text"""
-    return Task(
-         description=f"""{llm_guidelines}
-
-        Process the uploaded PDF document and extract structured text with page numbering.
-        
-        Document content: {pdf_content[:1000]}...
-        
-        Requirements:
-        1. Extract all text content with accurate page numbering
-        2. Maintain document structure and formatting
-        3. Handle any OCR requirements for scanned content
-        4. Prepare text for indexing analysis
-        
-        Output: Structured text with page numbers clearly marked
-        """,
-        agent=agent,
-        expected_output="Structured text content with page numbers and document hierarchy"
-    )
-
-def create_structure_analysis_task(agent, document_content, previous_index=None, llm_guidelines=""):
-    """Task for analyzing document structure and previous index patterns"""
+def create_subject_index_task(agent, document_content, llm_guidelines=""):
+    """Task for generating only the subject index"""
     return Task(
         description=f"""{llm_guidelines}
 
-        Analyze the document structure and identify indexing patterns.
-        
-        Document content: {document_content[:1000]}...
-        Previous index (if available): {previous_index or 'None provided'}
-        
-        Requirements:
-        1. Identify different types of content (names, companies, subjects)
-        2. Analyze previous index structure and patterns
-        3. Establish consistent formatting rules
-        4. Identify key themes and concepts
-        
-        Output: Structure analysis report with indexing guidelines
-        """,
-        agent=agent,
-        expected_output="Document structure analysis and indexing pattern recommendations"
-    )
-
-def create_index_generation_task(agent, document_content, structure_analysis, llm_guidelines=""):
-    """Task for generating the subject and name indexes"""
-    return Task(
-        description=f"""{llm_guidelines}
-
-        Generate comprehensive subject and name indexes based on the document content and structure analysis.
-        
-        Document content: {document_content[:1000]}...
-        Structure analysis: {structure_analysis}
-        
-        Follow these indexing guidelines:
-        1. Create main entries as nouns for subject index
-        2. Include appropriate subentries in subject index
-        3. Add cross-references where needed
-        4. Ensure accurate page numbering
-        5. Follow alphabetical ordering
-        6. Include double postings for important terms
-        7. Create a separate name index listing all names with page numbers
-        
-        Output: Complete subject index and name index in standard format, clearly separated
-        """,
-        agent=agent,
-        expected_output="Complete subject index and name index with main entries, subentries, and cross-references"
-    )
-
-def create_glossary_extraction_task(agent, document_content, llm_guidelines=""):
-    """Task for extracting and organizing glossary terms"""
-    return Task(
-        description=f"""{llm_guidelines}
-
-        Extract and organize glossary terms from the document.
+        Generate a clean subject index ONLY from the document content. 
         
         Document content: {document_content[:1000]}...
         
-        Requirements:
-        1. Identify all glossary terms and definitions
-        2. Find terms that should be in glossary but aren't
-        3. Check for term consistency across chapters
-        4. Organize terms alphabetically
-        5. Validate definitions for accuracy
+        STRICT REQUIREMENTS:
+        1. Generate ONLY subject index entries (concepts, topics, themes)
+        2. Do NOT include names of people, companies, or organizations
+        3. Use this exact format for each entry:
+           Term, page numbers
+           Example: "Artificial intelligence, 15, 23, 45"
+        4. Sort entries alphabetically with letter headers (A, B, C, etc.)
+        5. Format: Letter header on its own line, followed by entries
+        6. Use accurate page numbers from the document
+        7. Output should be clean with no additional explanations or text
+        8. One entry per line under each letter section
         
-        Output: Complete glossary with terms and definitions
+        OUTPUT FORMAT EXAMPLE:
+        A
+        Algorithms, 12, 34, 56
+        Artificial intelligence, 15, 23, 45
+        
+        B
+        Behavioral analysis, 67, 89
+        
+        D
+        Data processing, 78, 90
+        
+        M
+        Machine learning, 101, 123, 145
+        
+        Generate the subject index now:
         """,
         agent=agent,
-        expected_output="Organized glossary with terms, definitions, and validation notes"
-    )
-
-def create_qa_review_task(agent, index_content, document_content, llm_guidelines=""):
-    """Task for quality assurance review"""
-    return Task(
-        description=f"""{llm_guidelines}
-
-        Review and validate the generated index for accuracy and completeness.
-        
-        Index content: {index_content}
-        Document content: {document_content[:1000]}...
-        
-        Requirements:
-        1. Validate all page references
-        2. Check for missing important terms
-        3. Verify cross-references are accurate
-        4. Ensure consistent formatting
-        5. Identify any errors or improvements needed
-        
-        Output: QA report with validation results and recommendations
-        """,
-        agent=agent,
-        expected_output="Comprehensive QA report with validation results and improvement recommendations"
+        expected_output="Clean subject index with terms and page numbers only, no additional text or formatting"
     )
 
 # Main Indexing Automation Class
-class IndexingAutomation:
+class SubjectIndexAutomation:
     def __init__(self):
         self.llm = initialize_llm()
         if self.llm:
-            self.agents = self._initialize_agents()
+            self.agent = create_subject_index_agent(self.llm)
         else:
-            self.agents = None
+            self.agent = None
         self.results = {}
 
-    def _initialize_agents(self):
-        """Initialize all agents"""
-        return {
-            'pdf_processor': create_pdf_processor_agent(self.llm),
-            'structure_analyst': create_structure_analyst_agent(self.llm),
-            'index_generator': create_index_generator_agent(self.llm),
-            'qa_reviewer': create_qa_reviewer_agent(self.llm)
-        }
-
-    def _chunk_text(self, text: str, max_chunk_size: int = 3000) -> List[str]:
-        """
-        Chunk text into smaller pieces not exceeding max_chunk_size characters.
-        Tries to split on page boundaries or newlines for better chunking.
-        """
-        chunks = []
-        current_chunk = ""
-        for line in text.splitlines(keepends=True):
-            if len(current_chunk) + len(line) > max_chunk_size:
-                chunks.append(current_chunk)
-                current_chunk = line
-            else:
-                current_chunk += line
-        if current_chunk:
-            chunks.append(current_chunk)
-        return chunks
-
-    def process_document(self, pdf_path: str, previous_index: str = None, llm_guidelines: str = "") -> Dict[str, Any]:
-        """Main processing pipeline with error handling and chunking for large documents"""
+    def process_document(self, pdf_path: str, llm_guidelines: str = "") -> Dict[str, Any]:
+        """Main processing pipeline for subject index only"""
         try:
-            if not self.agents:
-                return {'error': 'Agents not initialized. Check LLM configuration.'}
+            if not self.agent:
+                return {'error': 'Agent not initialized. Check LLM configuration.'}
 
             # Open PDF to get page count
             doc = fitz.open(pdf_path)
             total_pages = doc.page_count
             doc.close()
 
-            page_chunk_size = 10  # Number of pages per chunk
+            page_chunk_size = 20  # Larger chunks since we only need subject index
             aggregated_subject_index = []
-            aggregated_name_index = []
-            aggregated_glossary = []
-            aggregated_qa_reports = []
-            aggregated_structure_analysis = []
 
             # Use the PDFProcessorTool instance directly for extraction
-            pdf_processor_tool = None
-            for tool in self.agents['pdf_processor'].tools:
-                if isinstance(tool, PDFProcessorTool):
-                    pdf_processor_tool = tool
-                    break
-            if pdf_processor_tool is None:
-                return {'error': 'PDFProcessorTool not found in pdf_processor agent tools.'}
+            pdf_processor_tool = PDFProcessorTool()
 
             for start_page in range(0, total_pages, page_chunk_size):
                 end_page = min(start_page + page_chunk_size, total_pages)
                 st.info(f"Processing pages {start_page + 1} to {end_page} of {total_pages}")
 
-                # Extract text for page chunk using PDFProcessorTool directly
+                # Extract text for page chunk
                 pdf_text_chunk = pdf_processor_tool._run(pdf_path, start_page=start_page, end_page=end_page)
 
                 if pdf_text_chunk.startswith("Error processing PDF"):
                     st.warning(f"PDF processing error on pages {start_page + 1}-{end_page}: {pdf_text_chunk}")
                     continue
 
-                # Phase 1: PDF Processing and Structure Analysis on chunk
-                pdf_task = create_pdf_processing_task(
-                    self.agents['pdf_processor'],
+                # Create subject index task
+                index_task = create_subject_index_task(
+                    self.agent,
                     pdf_text_chunk,
                     llm_guidelines
                 )
 
-                structure_task = create_structure_analysis_task(
-                    self.agents['structure_analyst'],
-                    pdf_text_chunk,
-                    previous_index,
-                    llm_guidelines
-                )
-
-                crew_phase1 = Crew(
-                    agents=[
-                        self.agents['pdf_processor'],
-                        self.agents['structure_analyst']
-                    ],
-                    tasks=[pdf_task, structure_task],
-                    process=Process.sequential,
-                    verbose=True
-                )
-
-                try:
-                    phase1_results = crew_phase1.kickoff()
-                    document_content = str(phase1_results.tasks_output[0].raw) if phase1_results.tasks_output else pdf_text_chunk
-                    structure_analysis = str(phase1_results.tasks_output[1].raw) if len(phase1_results.tasks_output) > 1 else "Basic structure analysis"
-                except Exception as e:
-                    st.warning(f"Phase 1 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
-                    document_content = pdf_text_chunk
-                    structure_analysis = "Basic structure analysis due to processing error"
-
-                # Phase 2: Index and Glossary Generation on chunk
-                index_task = create_index_generation_task(
-                    self.agents['index_generator'],
-                    document_content,
-                    structure_analysis,
-                    llm_guidelines
-                )
-
-                # Remove glossary extraction task as per user request
-                crew_phase2 = Crew(
-                    agents=[
-                        self.agents['index_generator']
-                    ],
+                crew = Crew(
+                    agents=[self.agent],
                     tasks=[index_task],
                     process=Process.sequential,
                     verbose=True
                 )
 
                 try:
-                    phase2_results = crew_phase2.kickoff()
-                    # Expecting output to contain both subject and name indexes separated by a delimiter
-                    index_output = str(phase2_results.tasks_output[0].raw) if phase2_results.tasks_output else "Index generation failed"
-                    # Split the output into subject and name indexes based on delimiter
-                    if "---NAME INDEX---" in index_output:
-                        subject_index_content, name_index_content = index_output.split("---NAME INDEX---", 1)
-                    else:
-                        subject_index_content = index_output
-                        name_index_content = ""
-                    glossary_content = ""  # No glossary as per user request
+                    results = crew.kickoff()
+                    subject_index_content = str(results.tasks_output[0].raw) if results.tasks_output else ""
+                    
+                    # Clean the output further
+                    subject_index_content = self._clean_index_output(subject_index_content)
+                    
+                    if subject_index_content.strip():
+                        aggregated_subject_index.append(subject_index_content)
+                        
                 except Exception as e:
-                    st.warning(f"Phase 2 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
-                    subject_index_content = "Index generation failed due to processing error"
-                    name_index_content = ""
-                    glossary_content = ""
+                    st.warning(f"Processing error on pages {start_page + 1}-{end_page}: {e}")
+                    continue
 
-                # Phase 3: Quality Assurance on chunk
-                qa_task = create_qa_review_task(
-                    self.agents['qa_reviewer'],
-                    index_output,
-                    document_content,
-                    llm_guidelines
-                )
-
-                crew_phase3 = Crew(
-                    agents=[self.agents['qa_reviewer']],
-                    tasks=[qa_task],
-                    process=Process.sequential,
-                    verbose=True
-                )
-
-                try:
-                    phase3_results = crew_phase3.kickoff()
-                    qa_report = str(phase3_results.tasks_output[0].raw) if phase3_results.tasks_output else "QA review failed"
-                except Exception as e:
-                    st.warning(f"Phase 3 error on pages {start_page + 1}-{end_page}: {e}. Using fallback processing.")
-                    qa_report = "QA review failed due to processing error"
-
-                # Aggregate results
-                aggregated_subject_index.append(subject_index_content)
-                aggregated_name_index.append(name_index_content)
-                aggregated_glossary.append(glossary_content)
-                aggregated_qa_reports.append(qa_report)
-                aggregated_structure_analysis.append(structure_analysis)
-
-            # Combine aggregated results
-            combined_subject_index = "\n\n---\n\n".join(aggregated_subject_index)
-            combined_name_index = "\n\n---\n\n".join(aggregated_name_index)
-            combined_qa_report = "\n\n---\n\n".join(aggregated_qa_reports)
-            combined_structure_analysis = "\n\n---\n\n".join(aggregated_structure_analysis)
+            # Combine and clean final results
+            if aggregated_subject_index:
+                combined_subject_index = self._merge_index_entries(aggregated_subject_index)
+            else:
+                combined_subject_index = "No subject index entries generated"
 
             self.results = {
-                'document_content': f"Processed {total_pages} pages in chunks of {page_chunk_size} pages.",
-                'structure_analysis': combined_structure_analysis,
-                'subject_index_content': combined_subject_index,
-                'name_index_content': combined_name_index,
-                'glossary_content': "",  # No glossary as per user request
-                'qa_report': combined_qa_report,
+                'subject_index': combined_subject_index,
                 'timestamp': datetime.now().isoformat()
             }
 
@@ -544,174 +221,174 @@ class IndexingAutomation:
         except Exception as e:
             st.error(f"Error in processing pipeline: {str(e)}")
             return {'error': str(e)}
+
+    def _clean_index_output(self, content: str) -> str:
+        """Clean the index output to remove unwanted text"""
+        lines = content.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            # Skip empty lines, headers, explanations
+            if not line:
+                continue
+            if line.lower().startswith(('subject index', 'index:', '===', '---', 'generated:', 'output:', 'here')):
+                continue
+            if 'example:' in line.lower() or 'format:' in line.lower():
+                continue
+            # Keep lines that look like index entries (have comma and numbers)
+            if ',' in line and any(char.isdigit() for char in line):
+                cleaned_lines.append(line)
+        
+        return '\n'.join(cleaned_lines)
+
+    def _merge_index_entries(self, index_chunks: List[str]) -> str:
+        """Merge and deduplicate index entries from multiple chunks"""
+        all_entries = {}
+        
+        for chunk in index_chunks:
+            lines = chunk.split('\n')
+            for line in lines:
+                line = line.strip()
+                if not line or ',' not in line:
+                    continue
+                
+                # Parse entry
+                if line.startswith('    '):  # Subentry
+                    continue  # Handle subentries separately
+                
+                parts = line.split(',')
+                if len(parts) < 2:
+                    continue
+                
+                term = parts[0].strip()
+                page_numbers = []
+                
+                for part in parts[1:]:
+                    part = part.strip()
+                    if part.isdigit():
+                        page_numbers.append(int(part))
+                
+                if term and page_numbers:
+                    if term in all_entries:
+                        all_entries[term].extend(page_numbers)
+                    else:
+                        all_entries[term] = page_numbers
+        
+        # Sort and format final output with alphabetical headers
+        sorted_entries = []
+        current_letter = ''
+        
+        for term in sorted(all_entries.keys(), key=str.lower):
+            # Get first letter of term
+            first_letter = term[0].upper()
+            
+            # Add letter header if it's a new letter
+            if first_letter != current_letter:
+                if sorted_entries:  # Add blank line before new letter (except for first)
+                    sorted_entries.append('')
+                sorted_entries.append(first_letter)
+                current_letter = first_letter
+            
+            # Format page numbers
+            unique_pages = sorted(list(set(all_entries[term])))
+            page_str = ', '.join(map(str, unique_pages))
+            sorted_entries.append(f"{term}, {page_str}")
+        
+        return '\n'.join(sorted_entries)
     
-    def export_results(self, format_type: str = 'json') -> str:
-        """Export results in specified format"""
-        if format_type == 'json':
-            return json.dumps(self.results, indent=2)
-        elif format_type == 'txt':
-            output = f"""
-INDEXING AUTOMATION RESULTS
-Generated: {self.results.get('timestamp', 'Unknown')}
-
-=== SUBJECT INDEX ===
-{self.results.get('subject_index_content', 'No subject index generated')}
-
-=== NAME INDEX ===
-{self.results.get('name_index_content', 'No name index generated')}
-
-=== GLOSSARY ===
-{self.results.get('glossary_content', 'No glossary generated')}
-
-=== QA REPORT ===
-{self.results.get('qa_report', 'No QA report generated')}
-
-=== STRUCTURE ANALYSIS ===
-{self.results.get('structure_analysis', 'No structure analysis generated')}
-"""
-            return output
-        else:
-            return str(self.results)
+    def export_clean_index(self) -> str:
+        """Export only the clean subject index"""
+        return self.results.get('subject_index', 'No subject index generated')
 
 # Streamlit Application
 def main():
     st.set_page_config(
-        page_title="CrewAI Indexing Automation",
-        page_icon="🤖",
+        page_title="Subject Index Generator",
+        page_icon="📚",
         layout="wide"
     )
     
-    st.title("🤖 CrewAI Indexing Automation System")
-    st.markdown("Multi-agent system for automated document indexing and glossary generation")
+    st.title("📚 Subject Index Generator")
+    st.markdown("Generate clean subject indexes from PDF documents")
     
     # Sidebar for configuration
     st.sidebar.header("Configuration")
     
     # Environment check
-    has_llm = (os.getenv("LLMFOUNDRY_TOKEN") or 
-               os.getenv("ANTHROPIC_API_KEY"))
+    has_llm = os.getenv("LLMFOUNDRY_TOKEN")
     
     if not has_llm:
-        st.sidebar.error("Please set one of: LLMFOUNDRY_TOKEN or ANTHROPIC_API_KEY")
-        st.error("No LLM configuration found. Please set up your API keys.")
+        st.sidebar.error("Please set LLMFOUNDRY_TOKEN")
+        st.error("No LLM configuration found. Please set up your API key.")
         return
     
-    # Display LLM status
-    llm_status = "✅ LLMFoundry" if os.getenv("LLMFOUNDRY_TOKEN") else "✅ Anthropic"
-    st.sidebar.info(f"LLM Provider: {llm_status}")
+    st.sidebar.info("✅ LLMFoundry configured")
     
     # File upload
     st.header("📁 Document Upload")
     uploaded_file = st.file_uploader("Upload PDF Document", type=['pdf'])
     
-    # Previous index upload (optional)
-    previous_index_file = st.file_uploader("Upload Previous Index (Optional)", type=['txt', 'json'])
-    
-    # New: LLM guidelines input
-    st.header("✍️ LLM Guidelines Input")
+    # LLM guidelines input
+    st.header("✍️ LLM Guidelines (Optional)")
     llm_guidelines = st.text_area(
-        "Enter your custom LLM guidelines or instructions here. These will be prepended to every LLM task prompt.",
-        height=150
+        "Enter additional instructions for the subject index generation:",
+        height=100,
+        placeholder="e.g., Focus on technical terms, Include methodology concepts, etc."
     )
     
     if uploaded_file is not None:
         # Initialize automation system
-        automation = IndexingAutomation()
+        automation = SubjectIndexAutomation()
         
         if automation.llm is None:
             st.error("LLM initialization failed. Please check your configuration.")
             return
         
-        # Process previous index if provided
-        previous_index = None
-        if previous_index_file is not None:
-            previous_index = previous_index_file.read().decode('utf-8')
+        # Save uploaded file temporarily
+        temp_path = f"temp_{uploaded_file.name}"
+        with open(temp_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
         
-        # Process PDF file path directly without extracting full text here
-        with st.spinner("Processing document..."):
-            try:
-                # Save uploaded file temporarily
-                temp_path = f"temp_{uploaded_file.name}"
-                with open(temp_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+        st.success("PDF uploaded successfully!")
+        
+        # Show preview
+        pdf_tool = PDFProcessorTool()
+        preview_text = pdf_tool._run(temp_path, start_page=0, end_page=3)
+        preview_text = preview_text[:1000] + "..." if len(preview_text) > 1000 else preview_text
+        with st.expander("📄 Document Preview"):
+            st.text_area("Document Content Preview", preview_text, height=200)
+        
+        # Process document
+        if st.button("🚀 Generate Subject Index"):
+            with st.spinner("Generating subject index..."):
+                results = automation.process_document(temp_path, llm_guidelines)
                 
-                st.success("PDF uploaded successfully!")
-                
-                # Show preview (limited to first 1000 characters of first 10 pages)
-                pdf_tool = PDFProcessorTool()
-                preview_text = pdf_tool._run(temp_path, start_page=0, end_page=10)
-                preview_text = preview_text[:1000] + "..." if len(preview_text) > 1000 else preview_text
-                with st.expander("📄 Document Preview"):
-                    st.text_area("Document Content Preview", preview_text, height=200)
-                
-                # Process with CrewAI using file path for chunked processing
-                if st.button("🚀 Start Indexing Automation"):
-                    with st.spinner("Running multi-agent indexing system..."):
-                        results = automation.process_document(temp_path, previous_index, llm_guidelines)
-                        
-                        if 'error' in results:
-                            st.error(f"Processing failed: {results['error']}")
-                        else:
-                            st.success("Indexing automation completed!")
-                            
-                            # Display results in tabs
-                            tab1, tab2, tab3, tab4, tab5 = st.tabs([
-                                "📋 Subject Index", 
-                                "📋 Name Index",
-                                "📚 Glossary", 
-                                "🔍 QA Report", 
-                                "📊 Structure Analysis"
-                            ])
-                            
-                            with tab1:
-                                st.subheader("Generated Subject Index")
-                                st.text_area("Subject Index Content", results.get('subject_index_content', ''), height=400, key="subject_index_content")
-                            
-                            with tab2:
-                                st.subheader("Generated Name Index")
-                                st.text_area("Name Index Content", results.get('name_index_content', ''), height=400, key="name_index_content")
-                            
-                            with tab3:
-                                st.subheader("Extracted Glossary")
-                                st.text_area("Glossary Content", results.get('glossary_content', ''), height=400, key="glossary_content")
-                            
-                            with tab4:
-                                st.subheader("Quality Assurance Report")
-                                st.text_area("QA Report", results.get('qa_report', ''), height=400, key="qa_report")
-                            
-                            with tab5:
-                                st.subheader("Document Structure Analysis")
-                                st.text_area("Structure Analysis", results.get('structure_analysis', ''), height=400, key="structure_analysis")
-                            
-                            # Export options
-                            st.header("📥 Export Results")
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                json_output = automation.export_results('json')
-                                st.download_button(
-                                    label="📄 Download as JSON",
-                                    data=json_output,
-                                    file_name=f"indexing_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                                    mime="application/json"
-                                )
-                            
-                            with col2:
-                                text_output = automation.export_results('txt')
-                                st.download_button(
-                                    label="📝 Download as Text",
-                                    data=text_output,
-                                    file_name=f"indexing_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                                    mime="text/plain"
-                                )
-                
-            except Exception as e:
-                st.error(f"Error processing document: {str(e)}")
-                st.exception(e)
-    
-    # Footer
-    st.markdown("---")
-    
+                if 'error' in results:
+                    st.error(f"Processing failed: {results['error']}")
+                else:
+                    st.success("Subject index generated successfully!")
+                    
+                    # Display results
+                    st.subheader("📋 Generated Subject Index")
+                    subject_index = results.get('subject_index', '')
+                    st.text_area("Subject Index", subject_index, height=400)
+                    
+                    # Export option
+                    st.header("📥 Download Clean Index")
+                    clean_output = automation.export_clean_index()
+                    st.download_button(
+                        label="📄 Download Subject Index",
+                        data=clean_output,
+                        file_name=f"subject_index_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                        mime="text/plain"
+                    )
+        
+        # Clean up temp file
+        try:
+            os.remove(temp_path)
+        except:
+            pass
 
 if __name__ == "__main__":
     main()
