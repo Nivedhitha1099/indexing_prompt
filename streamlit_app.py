@@ -13,12 +13,12 @@ from pathlib import Path
 
 # CrewAI imports
 from crewai import Agent, Task, Crew, Process
+from crewai.llm import LLM
 from langchain_core.tools import BaseTool
 
 # LangChain imports
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_anthropic import ChatAnthropic
-# from langchain_openai import ChatOpenAI  # Commented out - no OpenAI integration
 
 # Additional imports
 import anthropic
@@ -44,7 +44,7 @@ class IndexStructure:
     cross_references: Dict[str, str]
     style_guide: Dict[str, Any]
 
-# Custom Tools
+# Custom Tools with proper Pydantic v2 compatibility
 class PDFProcessorTool(BaseTool):
     name: str = "PDF Processor"
     description: str = "Extracts text from PDF files with page numbers"
@@ -134,57 +134,48 @@ class GlossaryExtractorTool(BaseTool):
         except Exception as e:
             return f"Error extracting glossary: {str(e)}"
 
-# Custom LLM Wrapper for CrewAI compatibility
-class CustomAnthropicLLM:
-    def __init__(self, token: str):
-        self.client = anthropic.Anthropic(
-            api_key=f'{token}:my-test-project',
-            base_url="https://llmfoundry.straive.com/anthropic/",
-        )
-        self.model = "claude-3-haiku-20240307"
-        
-    def invoke(self, input_data, **kwargs):
-        try:
-            if isinstance(input_data, str):
-                messages = [{"role": "user", "content": input_data}]
-                system_prompt = None
-            elif isinstance(input_data, list):
-                messages = []
-                system_prompt = None
-                for msg in input_data:
-                    if isinstance(msg, SystemMessage):
-                        system_prompt = msg.content
-                    elif isinstance(msg, HumanMessage):
-                        messages.append({"role": "user", "content": msg.content})
-                    elif isinstance(msg, dict):
-                        messages.append(msg)
-            else:
-                messages = [{"role": "user", "content": str(input_data)}]
-                system_prompt = None
-            
-            response = self.client.messages.create(
-                model=self.model,
-                max_tokens=4096,
-                messages=messages,
-                system=system_prompt
-            )
-            
-            if isinstance(response.content, list):
-                return "".join([block.text for block in response.content if hasattr(block, 'text')])
-            else:
-                return str(response.content)
-                
-        except Exception as e:
-            return f"Error in LLM call: {str(e)}"
-
-# LLM Setup
+# Fixed LLM Configuration
 def initialize_llm():
     """Initialize the LLM with proper CrewAI compatibility"""
     try:
         # Try LLMFoundry first
         token = os.getenv("LLMFOUNDRY_TOKEN")
         if token:
-            return CustomAnthropicLLM(token)
+            # Use CrewAI's LLM wrapper for proper compatibility
+            return LLM(
+                model="anthropic/claude-3-haiku-20240307",
+                base_url="https://llmfoundry.straive.com/anthropic/",
+                api_key=f'{token}:my-test-project'
+            )
+        
+        # Fallback to standard Anthropic
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+        if anthropic_key:
+            return LLM(
+                model="anthropic/claude-3-haiku-20240307",
+                api_key=anthropic_key
+            )
+        
+        return None
+        
+    except Exception as e:
+        st.error(f"LLM initialization error: {e}")
+        return None
+
+# Alternative LLM initialization for LangChain compatibility
+def initialize_langchain_llm():
+    """Initialize LangChain LLM for direct use"""
+    try:
+        # Try LLMFoundry first
+        token = os.getenv("LLMFOUNDRY_TOKEN")
+        if token:
+            return ChatAnthropic(
+                model="claude-3-haiku-20240307",
+                temperature=0.1,
+                max_tokens=4096,
+                anthropic_api_key=f'{token}:my-test-project',
+                anthropic_api_url="https://llmfoundry.straive.com/anthropic/"
+            )
         
         # Fallback to standard Anthropic
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
@@ -196,23 +187,13 @@ def initialize_llm():
                 anthropic_api_key=anthropic_key
             )
         
-        # Fallback to OpenAI if available
-        # openai_key = os.getenv("OPENAI_API_KEY")
-        # if openai_key:
-        #     return ChatOpenAI(
-        #         model="gpt-3.5-turbo",
-        #         temperature=0.1,
-        #         max_tokens=4096,
-        #         openai_api_key=openai_key
-        #     )
-        
         return None
         
     except Exception as e:
-        st.error(f"LLM initialization error: {e}")
+        st.error(f"LangChain LLM initialization error: {e}")
         return None
 
-# Agents
+# Agents with proper LLM configuration
 def create_pdf_processor_agent(llm):
     """Agent responsible for PDF processing and text extraction"""
     return Agent(
@@ -417,7 +398,7 @@ class IndexingAutomation:
         }
     
     def process_document(self, pdf_content: str, previous_index: str = None) -> Dict[str, Any]:
-        """Main processing pipeline"""
+        """Main processing pipeline with error handling"""
         try:
             if not self.agents:
                 return {'error': 'Agents not initialized. Check LLM configuration.'}
@@ -434,7 +415,7 @@ class IndexingAutomation:
                 previous_index
             )
             
-            # Phase 2: Index Generation
+            # Phase 1 Crew
             crew_phase1 = Crew(
                 agents=[
                     self.agents['pdf_processor'],
@@ -445,11 +426,17 @@ class IndexingAutomation:
                 verbose=True
             )
             
-            phase1_results = crew_phase1.kickoff()
-            
-            # Extract results
-            document_content = phase1_results.tasks_output[0].raw
-            structure_analysis = phase1_results.tasks_output[1].raw
+            try:
+                phase1_results = crew_phase1.kickoff()
+                
+                # Extract results safely
+                document_content = str(phase1_results.tasks_output[0].raw) if phase1_results.tasks_output else pdf_content
+                structure_analysis = str(phase1_results.tasks_output[1].raw) if len(phase1_results.tasks_output) > 1 else "Basic structure analysis"
+                
+            except Exception as e:
+                st.warning(f"Phase 1 error: {e}. Using fallback processing.")
+                document_content = pdf_content
+                structure_analysis = "Basic structure analysis due to processing error"
             
             # Phase 2: Index and Glossary Generation
             index_task = create_index_generation_task(
@@ -469,15 +456,21 @@ class IndexingAutomation:
                     self.agents['glossary_specialist']
                 ],
                 tasks=[index_task, glossary_task],
-                process=Process.parallel,
+                process=Process.sequential,  # Changed from parallel for better stability
                 verbose=True
             )
             
-            phase2_results = crew_phase2.kickoff()
-            
-            # Extract results
-            index_content = phase2_results.tasks_output[0].raw
-            glossary_content = phase2_results.tasks_output[1].raw
+            try:
+                phase2_results = crew_phase2.kickoff()
+                
+                # Extract results safely
+                index_content = str(phase2_results.tasks_output[0].raw) if phase2_results.tasks_output else "Index generation failed"
+                glossary_content = str(phase2_results.tasks_output[1].raw) if len(phase2_results.tasks_output) > 1 else "Glossary extraction failed"
+                
+            except Exception as e:
+                st.warning(f"Phase 2 error: {e}. Using fallback processing.")
+                index_content = "Index generation failed due to processing error"
+                glossary_content = "Glossary extraction failed due to processing error"
             
             # Phase 3: Quality Assurance
             qa_task = create_qa_review_task(
@@ -493,8 +486,13 @@ class IndexingAutomation:
                 verbose=True
             )
             
-            phase3_results = crew_phase3.kickoff()
-            qa_report = phase3_results.tasks_output[0].raw
+            try:
+                phase3_results = crew_phase3.kickoff()
+                qa_report = str(phase3_results.tasks_output[0].raw) if phase3_results.tasks_output else "QA review failed"
+                
+            except Exception as e:
+                st.warning(f"Phase 3 error: {e}. Using fallback processing.")
+                qa_report = "QA review failed due to processing error"
             
             # Compile final results
             self.results = {
@@ -554,12 +552,15 @@ def main():
     # Environment check
     has_llm = (os.getenv("LLMFOUNDRY_TOKEN") or 
                os.getenv("ANTHROPIC_API_KEY"))
-               # or os.getenv("OPENAI_API_KEY"))  # Commented out - no OpenAI integration
     
     if not has_llm:
         st.sidebar.error("Please set one of: LLMFOUNDRY_TOKEN or ANTHROPIC_API_KEY")
         st.error("No LLM configuration found. Please set up your API keys.")
         return
+    
+    # Display LLM status
+    llm_status = "✅ LLMFoundry" if os.getenv("LLMFOUNDRY_TOKEN") else "✅ Anthropic"
+    st.sidebar.info(f"LLM Provider: {llm_status}")
     
     # File upload
     st.header("📁 Document Upload")
@@ -602,6 +603,10 @@ def main():
                 
                 st.success("PDF processed successfully!")
                 
+                # Show preview
+                with st.expander("📄 Document Preview"):
+                    st.text_area("Document Content", pdf_content[:2000] + "..." if len(pdf_content) > 2000 else pdf_content, height=200)
+                
                 # Process with CrewAI
                 if st.button("🚀 Start Indexing Automation"):
                     with st.spinner("Running multi-agent indexing system..."):
@@ -622,46 +627,45 @@ def main():
                             
                             with tab1:
                                 st.subheader("Generated Subject Index")
-                                st.text_area("Index Content", results.get('index_content', ''), height=400)
+                                st.text_area("Index Content", results.get('index_content', ''), height=400, key="index_content")
                             
                             with tab2:
                                 st.subheader("Extracted Glossary")
-                                st.text_area("Glossary Content", results.get('glossary_content', ''), height=400)
+                                st.text_area("Glossary Content", results.get('glossary_content', ''), height=400, key="glossary_content")
                             
                             with tab3:
                                 st.subheader("Quality Assurance Report")
-                                st.text_area("QA Report", results.get('qa_report', ''), height=400)
+                                st.text_area("QA Report", results.get('qa_report', ''), height=400, key="qa_report")
                             
                             with tab4:
                                 st.subheader("Document Structure Analysis")
-                                st.text_area("Structure Analysis", results.get('structure_analysis', ''), height=400)
+                                st.text_area("Structure Analysis", results.get('structure_analysis', ''), height=400, key="structure_analysis")
                             
                             # Export options
                             st.header("📥 Export Results")
                             col1, col2 = st.columns(2)
                             
                             with col1:
-                                if st.button("Download as JSON"):
-                                    json_output = automation.export_results('json')
-                                    st.download_button(
-                                        label="Download JSON",
-                                        data=json_output,
-                                        file_name=f"indexing_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                                        mime="application/json"
-                                    )
+                                json_output = automation.export_results('json')
+                                st.download_button(
+                                    label="📄 Download as JSON",
+                                    data=json_output,
+                                    file_name=f"indexing_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                    mime="application/json"
+                                )
                             
                             with col2:
-                                if st.button("Download as Text"):
-                                    text_output = automation.export_results('txt')
-                                    st.download_button(
-                                        label="Download Text",
-                                        data=text_output,
-                                        file_name=f"indexing_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                                        mime="text/plain"
-                                    )
+                                text_output = automation.export_results('txt')
+                                st.download_button(
+                                    label="📝 Download as Text",
+                                    data=text_output,
+                                    file_name=f"indexing_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                                    mime="text/plain"
+                                )
                 
             except Exception as e:
                 st.error(f"Error processing document: {str(e)}")
+                st.exception(e)
     
     # Footer
     st.markdown("---")
